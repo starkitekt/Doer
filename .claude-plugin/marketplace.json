@@ -1,0 +1,5 @@
+{
+  "name": "doer",
+  "owner": { "name": "starkitekt", "url": "https://github.com/starkitekt" },
+  "plugins": [{ "name": "live-checklist", "source": "./" }]
+}
