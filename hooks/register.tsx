@@ -37,12 +37,12 @@ const DESCRIPTION = [
 ].join(' ')
 
 // Colours per theme. Text and green sit as light as they can while still at least 5:1:
-// light on white and cream (#FAF9F5), dark on #1F1E1D, #262624 and #30302E.
-// ring: the active spinner. open: the to-do circles, one solid grey in every theme (1.8:1 on white, so it reads without competing with text).
+// light on the app's grey tray (#F0F0EF), dark on #1F1E1D, #262624 and #30302E.
+// ring: the active spinner. open: the to-do circles, one solid grey in every theme (1.6:1 on the tray, so it reads without competing with text).
 // 'mid' is for a theme the band cannot tell; its green is the best balance for both (3.85:1).
 type Palette = { accent: string; tick: string; grey: string; ring: string; open: string; fill: string; ink: string }
 const PALETTES: Record<'light' | 'dark' | 'mid', Palette> = {
-  light: { accent: '#147B3A', tick: '#FFFFFF', grey: '#686B71', ring: '#5F6672', open: '#BEC1C7', fill: '#BEC1C7', ink: '#686B71' },
+  light: { accent: '#127338', tick: '#FFFFFF', grey: '#62656B', ring: '#5F6672', open: '#BEC1C7', fill: '#BEC1C7', ink: '#62656B' },
   dark: { accent: '#2DB65F', tick: '#1F1E1D', grey: '#9F9FA3', ring: '#80808A', open: '#BEC1C7', fill: '#BEC1C7', ink: '#9F9FA3' },
   mid: { accent: '#1F934A', tick: '#FFFFFF', grey: '#8A9099', ring: '#8A9099', open: '#BEC1C7', fill: '#BEC1C7', ink: '#8A9099' },
 }
@@ -254,17 +254,9 @@ export const register: Register = on => {
       )
     }
 
+    // No card or border of its own: the app's grey tray around the band is the frame.
     return (
-      <Box
-        flexDirection="column"
-        rowGap={1}
-        paddingX="md"
-        paddingY="sm"
-        borderStyle="round"
-        borderColor="promptBorder"
-        borderDimColor
-        backgroundColor={mode === 'light' ? '#FFFFFF' : undefined}
-      >
+      <Box flexDirection="column" rowGap={1} paddingX="md" paddingY="sm">
         <Box key="head" flexDirection="row" alignItems="center">
           <Text key="title" weight="bold" color={P.ink} wrap="truncate-end">
             {l.title}

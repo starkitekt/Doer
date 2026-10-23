@@ -8,7 +8,7 @@ A live checklist that floats above the Claude Code prompt. Claude sets the goal 
 - Each row starts with the model that runs the step, so the steps line up in one column
 - Circles sit on the text baseline
 
-Rows use the app's own font at your interface size. It works on light and dark themes, on a white band in light mode.
+Rows use the app's own font at your interface size. It works on light and dark themes and sits straight on the app's tray above the prompt, with no card or border of its own.
 
 ## Install
 
