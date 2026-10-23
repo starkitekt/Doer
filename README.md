@@ -2,13 +2,13 @@
 
 A live checklist that floats above the Claude Code prompt. Claude sets the goal it is solving as the header, then ticks steps off as it works, so you are never left guessing what it is doing.
 
-- **Done:** blue disc with a tick, row in bold blue
-- **In progress:** slowly turning dotted ring
-- **Not started:** clear ring, grey text
-- **Waiting on you:** grey text marked *your turn*
-- A `done/total` count at top right
+- **Done:** green disc with a tick, green text, and the tokens and time the step took at the right
+- **In progress:** slowly turning dotted ring, marked *in progress* in serif italics
+- **Not started:** filled light grey circle, grey text
+- Each row starts with the model that runs the step, so the steps line up in one column
+- Circles sit on the text baseline
 
-It uses Plus Jakarta Sans when installed, and falls back to the system font otherwise. It works in light and dark themes.
+Rows use the app's own font at your interface size. It works on light and dark themes, on a white band in light mode.
 
 ## Install
 
