@@ -86,7 +86,7 @@ const DESCRIPTION = [
   'and again whenever a step starts or finishes, sending the whole list each time.',
   'status: done, active (being worked on now), pending, or wait (waiting on the person, e.g. an approval).',
   'model: which model runs the step (Opus, Sonnet, Haiku); left out, the session model. Tokens and time are measured for you.',
-  'goal: for a step an agent works on, the problem it is solving and when it is done, in one line; shown under the step while it is active.',
+  'goal: for a step an agent works on, the problem it is up against (what is wrong or unknown), never the fix or method, in one line; shown under the step while it is active.',
   'Keep each text to a few crisp words, no filler. Send an empty items list to clear it.',
 ].join(' ')
 
@@ -207,7 +207,7 @@ export const register: Register = on => {
                 text: { type: 'string' },
                 status: { type: 'string', enum: STATUSES },
                 model: { type: 'string', description: 'Opus, Sonnet or Haiku: the model that runs this step.' },
-                goal: { type: 'string', description: "The problem this step's agent is solving and when it is done, one line (e.g. 'list every file that reads theme; done when none are missed')." },
+                goal: { type: 'string', description: "The problem this step's agent is working on, not the solution, one line (e.g. 'band misses steps finished without going active', not 'patch the done handler')." },
               },
               required: ['text', 'status'],
             },

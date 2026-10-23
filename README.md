@@ -36,7 +36,7 @@ Once a step is done, the header shows the run so far at the right: `14m · 84k T
 
 ## Solving line
 
-The active step gets a dim second line, `Solving: …`, saying what its agent is working on. Claude can set it per step with `goal` (the problem and when it is done, one line). Without one, the line shows the task description of a running subagent on the step's model.
+The active step gets a dim second line, `Solving: …`, naming the problem its agent is working on, not the solution. Claude sets it per step with `goal`, one line (`band misses steps finished without going active`, not `patch the done handler`). Without one, the line shows the task description of a running subagent on the step's model.
 
 ## Install
 

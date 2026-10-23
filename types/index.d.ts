@@ -13,7 +13,7 @@ export type Item = {
   startTok?: number
   tokens?: number
   ms?: number
-  // The problem the step's agent is solving and when it is done, shown under it while it runs.
+  // The problem the step's agent is working on (not the solution), shown under it while it runs.
   goal?: string
 }
 // at / tokAt: clock and token meter at the last update, the start for a step done without being active.
