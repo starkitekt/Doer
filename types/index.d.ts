@@ -13,6 +13,8 @@ export type Item = {
   startTok?: number
   tokens?: number
   ms?: number
+  // The problem the step's agent is solving and when it is done, shown under it while it runs.
+  goal?: string
 }
 // at / tokAt: clock and token meter at the last update, the start for a step done without being active.
 export type List = { title: string; items: Item[]; at?: number; tokAt?: number }
@@ -24,9 +26,18 @@ export type Meter = { tokens: number; model: string }
 export type Git = { label: string; tone: 'alert' | 'ok' | 'quiet' }
 // The auto-sync tally from ~/.claude/autosync.count: pushes that went up, ones that failed, and whether the last one failed.
 export type Sync = { pushed: number; failed: number; lastFailed: boolean }
+// The model each subagent of this session runs on, by agent id, noted when it spawns.
+export type AgentModels = Record<string, string>
 
 declare module 'claude-code' {
   interface PluginState {
-    'live-checklist': { list: List | null; isOpen: boolean; meter: Meter; git: Git | null; sync: Sync | null }
+    'live-checklist': {
+      list: List | null
+      isOpen: boolean
+      meter: Meter
+      git: Git | null
+      sync: Sync | null
+      agentModels: AgentModels
+    }
   }
 }

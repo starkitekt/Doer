@@ -5,13 +5,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Git, Item, List, Meter, Status, Sync } from '../types'
+import type { AgentModels, Git, Item, List, Meter, Status, Sync } from '../types'
 
 const list = atom({ plugin: 'live-checklist', key: 'list' } as const, null)
 const isOpen = atom({ plugin: 'live-checklist', key: 'isOpen' } as const, true)
 const meter = atom({ plugin: 'live-checklist', key: 'meter' } as const, { tokens: 0, model: '' } as Meter)
 const git = atom({ plugin: 'live-checklist', key: 'git' } as const, null as Git | null)
 const sync = atom({ plugin: 'live-checklist', key: 'sync' } as const, null as Sync | null)
+const agentModels = atom({ plugin: 'live-checklist', key: 'agentModels' } as const, {} as AgentModels)
 
 // The repo's one most urgent state, in this order: conflicts, checks failing, checks running,
 // unpushed commits, changed files, else clean. null outside a git repo. Read-only: it runs
@@ -70,6 +71,13 @@ const fmtTime = (ms: number) => {
 }
 const stats = (i: Item) =>
   i.status === 'done' && i.tokens !== undefined && i.ms !== undefined ? `${fmtTok(i.tokens)} T / ${fmtTime(i.ms)}` : ''
+// The whole list so far: time and tokens of every done step added up. Empty until one is done.
+const runTotal = (items: Item[]) => {
+  const done = items.filter(i => i.status === 'done' && i.tokens !== undefined && i.ms !== undefined)
+  if (!done.length) return ''
+  const sum = (f: (i: Item) => number) => done.reduce((n, i) => n + f(i), 0)
+  return `${fmtTime(sum(i => i.ms ?? 0))} · ${fmtTok(sum(i => i.tokens ?? 0))} T`
+}
 
 const STATUSES: Status[] = ['done', 'active', 'pending', 'wait']
 
@@ -78,6 +86,7 @@ const DESCRIPTION = [
   'and again whenever a step starts or finishes, sending the whole list each time.',
   'status: done, active (being worked on now), pending, or wait (waiting on the person, e.g. an approval).',
   'model: which model runs the step (Opus, Sonnet, Haiku); left out, the session model. Tokens and time are measured for you.',
+  'goal: for a step an agent works on, the problem it is solving and when it is done, in one line; shown under the step while it is active.',
   'Keep each text to a few crisp words, no filler. Send an empty items list to clear it.',
 ].join(' ')
 
@@ -198,6 +207,7 @@ export const register: Register = on => {
                 text: { type: 'string' },
                 status: { type: 'string', enum: STATUSES },
                 model: { type: 'string', description: 'Opus, Sonnet or Haiku: the model that runs this step.' },
+                goal: { type: 'string', description: "The problem this step's agent is solving and when it is done, one line (e.g. 'list every file that reads theme; done when none are missed')." },
               },
               required: ['text', 'status'],
             },
@@ -207,6 +217,21 @@ export const register: Register = on => {
       },
     })
     return next(e)
+  })
+
+  // Note the model each subagent starts on, so a step run on that model can show what its agent is solving.
+  on('agent.spawn', async ($, e, next) => {
+    const r = await next(e)
+    try {
+      if (!r.deny && r.agentId && r.model) {
+        const id = r.agentId
+        const model = r.model
+        await update($, agentModels, a => ({ ...(a ?? {}), [id]: model }))
+      }
+    } catch {
+      // Bookkeeping only: a failure here never touches the spawn.
+    }
+    return r
   })
 
   // Count new tokens (uncached input, cache writes, output) of every response, subagents included.
@@ -228,7 +253,7 @@ export const register: Register = on => {
     const prev = await read($, list)
     const before = prev?.items ?? []
     const items: Item[] = raw
-      .filter((i): i is { text: unknown; status: unknown; model?: unknown } => typeof i === 'object' && i !== null)
+      .filter((i): i is { text: unknown; status: unknown; model?: unknown; goal?: unknown } => typeof i === 'object' && i !== null)
       .map((i, n) => {
         const text = String(i.text ?? '').slice(0, 200)
         const status: Status = (STATUSES as unknown[]).includes(i.status) ? (i.status as Status) : 'pending'
@@ -236,6 +261,8 @@ export const register: Register = on => {
         const was = before.find(b => b.text === text) ?? before[n]
         const asked = typeof i.model === 'string' && i.model.trim() ? shortModel(i.model) : undefined
         const item: Item = { text, status, model: asked ?? was?.model ?? (m.model ? shortModel(m.model) : undefined) }
+        const goal = typeof i.goal === 'string' && i.goal.trim() ? i.goal.trim().slice(0, 160) : was?.goal
+        if (goal) item.goal = goal
         if (was?.startedAt !== undefined) {
           item.startedAt = was.startedAt
           item.startTok = was.startTok
@@ -291,6 +318,22 @@ export const register: Register = on => {
     const sessionModel = m?.model ? shortModel(m.model) : ''
     const g = await read($, git)
     const s = await read($, sync)
+    // Context gauge: grey, amber from 75%, red from 85% (auto-compact is near).
+    const usage = await $.session.usage().catch(() => undefined)
+    const pct = usage?.context.percent
+    const total = runTotal(l.items)
+    // What the active step's agent is solving: its own goal, else the description of a running
+    // subagent on the step's model.
+    const models = (await read($, agentModels)) ?? {}
+    const live = l.items.some(i => i.status === 'active' && !i.goal)
+      ? (await $.agent.list().catch(() => [])).filter(a => !a.parentId && ['pending', 'running', 'waiting'].includes(a.status))
+      : []
+    const solving = (i: Item) => {
+      if (i.status !== 'active') return ''
+      if (i.goal) return i.goal
+      const model = i.model ?? sessionModel
+      return live.find(a => models[a.id] && shortModel(models[a.id] ?? '') === model)?.description ?? ''
+    }
 
     const done = l.items.filter(i => i.status === 'done')
     const rest = l.items.filter(i => i.status !== 'done')
@@ -323,26 +366,38 @@ export const register: Register = on => {
       const isDone = i.status === 'done'
       const isNow = i.status === 'active'
       const took = stats(i)
+      const why = solving(i)
+      const line = (
+        <Box key="l" flexDirection="row" alignItems="center" gap="sm">
+          <Text key="t" color={isDone ? P.accent : 'text'} weight="regular" wrap="truncate-end">
+            {i.text}
+          </Text>
+          {isNow ? (
+            graphic ? (
+              <Svg key="w" source={busy(P.grey)} alt="in progress" width={BUSY_W} height={LINE} />
+            ) : (
+              <Text key="w" color={P.grey} italic>
+                in progress
+              </Text>
+            )
+          ) : null}
+        </Box>
+      )
+      // With a Solving line the row tops-aligns, so the model and glyph stay on the step's own line.
       return (
-        <Box key={k} flexDirection="row" alignItems="center" gap="sm">
+        <Box key={k} flexDirection="row" alignItems={why ? 'flex-start' : 'center'} gap="sm">
           <Box key={k + 'm'} width={7} flexShrink={0}>
             <Text key="m" size="footnote" weight="medium" color={P.grey} wrap="truncate-end">
               {i.model ?? sessionModel}
             </Text>
           </Box>
           {glyph(i.status, k + 'g')}
-          <Box key={k + 'b'} flexGrow={1} flexShrink={1} flexDirection="row" alignItems="center" gap="sm">
-            <Text key="t" color={isDone ? P.accent : 'text'} weight="regular" wrap="truncate-end">
-              {i.text}
-            </Text>
-            {isNow ? (
-              graphic ? (
-                <Svg key="w" source={busy(P.grey)} alt="in progress" width={BUSY_W} height={LINE} />
-              ) : (
-                <Text key="w" color={P.grey} italic>
-                  in progress
-                </Text>
-              )
+          <Box key={k + 'b'} flexGrow={1} flexShrink={1} flexDirection="column">
+            {line}
+            {why ? (
+              <Text key="y" size="footnote" color={P.grey} wrap="truncate-end">
+                {`Solving: ${why}`}
+              </Text>
             ) : null}
           </Box>
           {took ? (
@@ -363,6 +418,16 @@ export const register: Register = on => {
               {l.title}
             </Text>
           </Box>
+          {total ? (
+            <Text key="total" size="footnote" color={P.grey} tabular>
+              {total}
+            </Text>
+          ) : null}
+          {pct !== undefined ? (
+            <Text key="ctx" size="footnote" color={pct >= 85 ? 'error' : pct >= 75 ? 'warning' : P.grey} tabular>
+              {`Context ${Math.round(pct)}%`}
+            </Text>
+          ) : null}
           {g ? (
             <Text key="git" size="footnote" color={g.tone === 'alert' ? 'error' : g.tone === 'ok' ? P.accent : P.grey} wrap="truncate-end">
               {g.label}
