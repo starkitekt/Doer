@@ -38,7 +38,15 @@ Once a step is done, the header shows the run so far at the right: `14m · 84k T
 
 ## Solving line
 
-The active step gets a dim second line, `Solving: …`, naming the problem its agent is working on, not the solution. Claude sets it per step with `goal`, one line (`band misses steps finished without going active`, not `patch the done handler`). Without one, the line shows the task description of a running subagent on the step's model.
+The active step gets a dim second line, `Solving: …`, naming the problem its agent is working on, not the solution. Claude sets it per step with `goal`, written the way Apple writes: plain everyday words anyone could follow, the problem as you would see it, under 8 words, no code names or jargon.
+
+| Yes | No |
+|---|---|
+| `Finished steps don't show as done` | `band misses steps finished without going active` |
+| `The app can't find your repo` | `git status exits 128` |
+| `Search results load slowly` | `patch the N+1 query` |
+
+Without a goal, the line shows the task description of a running subagent on the step's model.
 
 ## Install
 
