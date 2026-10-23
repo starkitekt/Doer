@@ -12,6 +12,8 @@ type Surface = 'terminal' | 'desktop' | 'vscode' | 'mobile'
 type Proc = { exitCode: number; stdout: string } | 'throw'
 
 const SET = 'mcp__live-checklist__set'
+const PLAN = 'mcp__ccd_turn__update_plan'
+const WRAP = 'mcp__ccd_turn__wrap_up'
 const PLUGIN = 'live-checklist'
 const PROPS = { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 } } as any
 const GREEN = { light: '#127338', dark: '#2DB65F', mid: '#1F934A' }
@@ -25,6 +27,7 @@ type World = {
   spawn?: unknown
   git?: (argv: readonly string[]) => Proc
   sync?: { text: string; mtime: number } | null
+  plan?: 'ok' | 'error' | 'deny'
 }
 
 // The engine beneath the plugin, stubbed call by call. A stub that throws is skipped by the kit,
@@ -60,6 +63,10 @@ async function boot($: $T, on: OnT, w: World = {}) {
     return { value: w.agents ?? [] } as any
   })
   on('agent.spawn', () => (w.spawn ?? { model: 'claude-haiku-5-5', agentId: 'a1' }) as any)
+  // The app's own task list tools, answered as the app would.
+  on('tool.call', { tool: PLAN } as any, () =>
+    (w.plan === 'deny' ? { deny: 'no' } : w.plan === 'error' ? { result: 'bad', text: 'bad', isError: true } : { result: 'Plan shown.' }) as any)
+  on('tool.call', { tool: WRAP } as any, () => ({ result: 'Wrapped.' }) as any)
   // What the engine draws when the plugin hands the band back.
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e) as any
@@ -68,6 +75,8 @@ async function boot($: $T, on: OnT, w: World = {}) {
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true } as any)
   await clock.settle()
   const set = async (input: object) => ((await $.tool.call({ tool: SET, ...input } as any)) as any)?.result as string
+  const plan = async (input: object) => (await $.tool.call({ tool: PLAN, ...input } as any)) as any
+  const wrap = async () => (await $.tool.call({ tool: WRAP, recap: 'r' } as any)) as any
   const draw = async (surface: Surface = 'desktop', props: object = {}) => {
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: { ...PROPS, ...props } })
     const texts = (await ui.findAll({ type: 'Text' } as any)).map(t => ({ text: t.text, color: t.props.color }))
@@ -76,7 +85,7 @@ async function boot($: $T, on: OnT, w: World = {}) {
     const all = texts.map(t => t.text)
     return { texts, svgs, all, color: (text: string) => texts.find(t => t.text === text)?.color }
   }
-  return { clock, set, draw }
+  return { clock, set, plan, wrap, draw }
 }
 
 const step = (text: string, status: string, extra: object = {}) => ({ text, status, ...extra })
@@ -453,4 +462,81 @@ test('a survey or an empty list hands the band back to the engine', async ($, on
   expect((await draw('desktop', { hasSurvey: true })).all).toEqual(['engine'])
   expect(await set({ title: 'T', items: [] })).toBe('Checklist cleared.')
   expect((await draw()).all).toEqual(['engine'])
+})
+
+// ---- The app's task list ---------------------------------------------------------------------
+
+const P = (content: string, status: string) => ({ content, status })
+// Each row's state, read from its glyph: Done, In progress, Not started.
+const states = (svgs: string[]) => svgs.filter(a => a !== 'in progress')
+
+test("the app's task list fills the band, in the band's words", async ($, on) => {
+  const { plan, draw } = await boot($, on)
+  const r = await plan({ items: [P('Read code', 'completed'), P('Fix it', 'in_progress'), P('Test', 'pending'), P('Odd', 'weird')], scope: 'first_task' })
+  expect(r.result).toBe('Plan shown.')
+  const d = await draw()
+  expect(d.all[0]).toBe('Tasks')
+  expect(states(d.svgs)).toEqual(['Done', 'In progress', 'Not started', 'Not started'])
+})
+
+test('advance, done and start move the steps as the app does', async ($, on) => {
+  const { plan, clock, draw } = await boot($, on)
+  await plan({ items: [P('a', 'in_progress'), P('b', 'pending'), P('c', 'pending'), P('d', 'pending')] })
+  await clock.advance(2 * MIN)
+  await plan({ advance: true })
+  expect(states((await draw()).svgs)).toEqual(['Done', 'In progress', 'Not started', 'Not started'])
+  expect((await draw()).all.some(t => t.endsWith('/ 2m'))).toBe(true)
+  await plan({ done: [2, 3], start: 4 })
+  expect(states((await draw()).svgs)).toEqual(['Done', 'Done', 'Done', 'In progress'])
+  // Out of range or junk numbers change nothing.
+  await plan({ done: [0, 9, 'x', 1.5], start: -1 })
+  expect(states((await draw()).svgs)).toEqual(['Done', 'Done', 'Done', 'In progress'])
+})
+
+test('wrap_up checks off the step still running', async ($, on) => {
+  const { plan, wrap, draw } = await boot($, on)
+  await plan({ items: [P('a', 'completed'), P('b', 'in_progress')] })
+  expect((await wrap()).result).toBe('Wrapped.')
+  expect(states((await draw()).svgs)).toEqual(['Done', 'Done'])
+})
+
+test('once set is called, set owns the band and the app list is ignored', async ($, on) => {
+  const { set, plan, wrap, draw } = await boot($, on)
+  await plan({ items: [P('plan step', 'in_progress')] })
+  await set({ title: 'Mine', items: [step('own step', 'active', { goal: 'Steps look wrong' })] })
+  await plan({ items: [P('other', 'pending')] })
+  await plan({ advance: true })
+  await wrap()
+  const d = await draw()
+  expect(d.all[0]).toBe('Mine')
+  expect(d.all).toContain('own step')
+  expect(d.all).not.toContain('other')
+  expect(d.all).toContain('Solving: Steps look wrong')
+})
+
+test('a refused or failed app list, junk, or a step move with no list leaves the band alone', async ($, on) => {
+  const world: World = {}
+  const { plan, wrap, draw } = await boot($, on, world)
+  expect((await plan({ advance: true })).result).toBe('Plan shown.')
+  await wrap()
+  expect((await draw()).all).toEqual(['engine'])
+  await plan({ items: [P('kept', 'pending')] })
+  for (const mode of ['deny', 'error'] as const) {
+    world.plan = mode
+    const r = await plan({ items: [P('lost', 'pending')] })
+    expect(mode === 'deny' ? r.deny : r.isError).toBeTruthy()
+  }
+  world.plan = 'ok'
+  for (const junk of [{ items: 'x' }, { items: [null, 3, { status: 'pending' }] }, { done: 'all' }, {}]) await plan(junk)
+  const d = await draw()
+  expect(d.all).toContain('kept')
+  expect(d.all).not.toContain('lost')
+})
+
+test('a new app list keeps the time of a step it carries over', async ($, on) => {
+  const { plan, clock, draw } = await boot($, on)
+  await plan({ items: [P('a', 'in_progress'), P('b', 'pending')] })
+  await clock.advance(3 * MIN)
+  await plan({ items: [P('a', 'completed'), P('b', 'in_progress'), P('c', 'pending')] })
+  expect((await draw()).all.some(t => t.endsWith('/ 3m'))).toBe(true)
 })

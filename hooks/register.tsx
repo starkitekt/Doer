@@ -85,6 +85,8 @@ const runTotal = (items: Item[]) => {
 }
 
 const STATUSES: Status[] = ['done', 'active', 'pending', 'wait']
+// The app's task list words (update_plan) in the band's.
+const PLAN_STATUS: Record<string, Status> = { completed: 'done', in_progress: 'active', pending: 'pending' }
 // A string (or finite number) as one trimmed line, capped; anything else is ''.
 const oneLine = (v: unknown, max: number) =>
   typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) ? String(v).replace(/\s+/g, ' ').trim().slice(0, max) : ''
@@ -186,6 +188,65 @@ async function refreshSync($: EngineInterface) {
   await update($, sync, () => s)
 }
 
+// Build and store the band's list from a set or update_plan call. Each step keeps its model, goal and
+// timing from the last update where it is the same step. Returns the list, or null when it is empty.
+async function applyList($: EngineInterface, rawTitle: unknown, raw: unknown[], source: List['source']): Promise<List | null> {
+  const now = await $.clock.now()
+  const m = (await read($, meter)) ?? { tokens: 0, model: '' }
+  const prev = await read($, list)
+  const before = prev?.items ?? []
+  const title = oneLine(rawTitle, 120) || 'Tasks'
+  // Steps with no usable text are dropped, so a bad payload never draws a blank row.
+  const clean = raw
+    .filter((i): i is { text: unknown; status: unknown; model?: unknown; goal?: unknown } => typeof i === 'object' && i !== null)
+    .map(i => ({ ...i, text: oneLine(i.text, 200) }))
+    .filter(i => i.text)
+  const texts = new Set(clean.map(i => i.text))
+  const used = new Set<number>()
+  // The same step from the last update, each one claimed once: same text at the same place, else
+  // the same text anywhere, else (same list, renamed step) whatever sat at that place, if its text is gone.
+  const claim = (text: string, n: number) => {
+    const free = (k: number) => k >= 0 && k < before.length && !used.has(k)
+    let k = free(n) && before[n]?.text === text ? n : before.findIndex((b, j) => free(j) && b.text === text)
+    if (k < 0 && prev?.title === title && free(n) && !texts.has(before[n]?.text ?? '')) k = n
+    if (k < 0) return undefined
+    used.add(k)
+    return before[k]
+  }
+  const items: Item[] = clean.map((i, n) => {
+      const text = i.text
+      const status: Status = (STATUSES as unknown[]).includes(i.status) ? (i.status as Status) : 'pending'
+      const was = claim(text, n)
+      const asked = typeof i.model === 'string' && i.model.trim() ? shortModel(i.model) : undefined
+      const item: Item = { text, status, model: asked ?? was?.model ?? (m.model ? shortModel(m.model) : undefined) }
+      const goal = oneLine(i.goal, 160) || was?.goal
+      if (goal) item.goal = goal
+      if (was?.startedAt !== undefined) {
+        item.startedAt = was.startedAt
+        item.startTok = was.startTok
+      }
+      if (status === 'active' && item.startedAt === undefined) {
+        item.startedAt = now
+        item.startTok = m.tokens
+      }
+      if (status === 'done') {
+        if (was?.status === 'done' && was.tokens !== undefined) {
+          item.tokens = was.tokens
+          item.ms = was.ms
+        } else {
+          const from = item.startedAt ?? prev?.at ?? now
+          const fromTok = item.startTok ?? prev?.tokAt ?? m.tokens
+          item.tokens = Math.max(0, m.tokens - fromTok)
+          item.ms = Math.max(0, now - from)
+        }
+      }
+      return item
+    })
+  const next: List | null = items.length ? { title, items, at: now, tokAt: m.tokens, source } : null
+  await update($, list, () => next)
+  return next
+}
+
 export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
@@ -259,63 +320,63 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'mcp__live-checklist__set' }, async ($, e) => {
     const input = e as unknown as { title?: unknown; items?: unknown }
-    const raw = Array.isArray(input.items) ? input.items : []
-    const now = await $.clock.now()
-    const m = (await read($, meter)) ?? { tokens: 0, model: '' }
-    const prev = await read($, list)
-    const before = prev?.items ?? []
-    const title = oneLine(input.title, 120) || 'Tasks'
-    // Steps with no usable text are dropped, so a bad payload never draws a blank row.
-    const clean = raw
-      .filter((i): i is { text: unknown; status: unknown; model?: unknown; goal?: unknown } => typeof i === 'object' && i !== null)
-      .map(i => ({ ...i, text: oneLine(i.text, 200) }))
-      .filter(i => i.text)
-    const texts = new Set(clean.map(i => i.text))
-    const used = new Set<number>()
-    // The same step from the last update, each one claimed once: same text at the same place, else
-    // the same text anywhere, else (same list, renamed step) whatever sat at that place, if its text is gone.
-    const claim = (text: string, n: number) => {
-      const free = (k: number) => k >= 0 && k < before.length && !used.has(k)
-      let k = free(n) && before[n]?.text === text ? n : before.findIndex((b, j) => free(j) && b.text === text)
-      if (k < 0 && prev?.title === title && free(n) && !texts.has(before[n]?.text ?? '')) k = n
-      if (k < 0) return undefined
-      used.add(k)
-      return before[k]
-    }
-    const items: Item[] = clean.map((i, n) => {
-        const text = i.text
-        const status: Status = (STATUSES as unknown[]).includes(i.status) ? (i.status as Status) : 'pending'
-        const was = claim(text, n)
-        const asked = typeof i.model === 'string' && i.model.trim() ? shortModel(i.model) : undefined
-        const item: Item = { text, status, model: asked ?? was?.model ?? (m.model ? shortModel(m.model) : undefined) }
-        const goal = oneLine(i.goal, 160) || was?.goal
-        if (goal) item.goal = goal
-        if (was?.startedAt !== undefined) {
-          item.startedAt = was.startedAt
-          item.startTok = was.startTok
-        }
-        if (status === 'active' && item.startedAt === undefined) {
-          item.startedAt = now
-          item.startTok = m.tokens
-        }
-        if (status === 'done') {
-          if (was?.status === 'done' && was.tokens !== undefined) {
-            item.tokens = was.tokens
-            item.ms = was.ms
-          } else {
-            const from = item.startedAt ?? prev?.at ?? now
-            const fromTok = item.startTok ?? prev?.tokAt ?? m.tokens
-            item.tokens = Math.max(0, m.tokens - fromTok)
-            item.ms = Math.max(0, now - from)
-          }
-        }
-        return item
-      })
-    const next: List | null = items.length ? { title, items, at: now, tokAt: m.tokens } : null
-    await update($, list, () => next)
-    const done = items.filter(i => i.status === 'done').length
-    return { result: next ? `Checklist shown: ${done}/${items.length} done.` : 'Checklist cleared.' }
+    const next = await applyList($, input.title, Array.isArray(input.items) ? input.items : [], 'set')
+    const done = next ? next.items.filter(i => i.status === 'done').length : 0
+    return { result: next ? `Checklist shown: ${done}/${next.items.length} done.` : 'Checklist cleared.' }
   }).catch(() => ({ result: 'Checklist could not be updated.' }))
+
+  // The app's own task list (update_plan, checked off by wrap_up) drives the band too, so it fills
+  // in every session without a second call. Once the session calls set, set owns the band.
+  on('tool.call', { tool: 'mcp__ccd_turn__update_plan' }, async ($, e, next) => {
+    const r = await next(e)
+    if (r.deny || r.isError) return r
+    try {
+      const prev = await read($, list)
+      if (prev?.source === 'set') return r
+      const input = e as unknown as { items?: unknown; advance?: unknown; done?: unknown; start?: unknown }
+      let steps: { text: unknown; status: Status }[]
+      if (Array.isArray(input.items)) {
+        steps = input.items
+          .filter((i): i is { content?: unknown; status?: unknown } => typeof i === 'object' && i !== null)
+          .map(i => ({ text: i.content, status: PLAN_STATUS[String(i.status)] ?? 'pending' }))
+        // The app's list always has steps: one with none to show is junk, not a clear.
+        if (!steps.some(s => oneLine(s.text, 200))) return r
+      } else {
+        if (!prev) return r
+        steps = prev.items.map(i => ({ text: i.text, status: i.status }))
+        const at = (n: unknown) => (typeof n === 'number' && Number.isInteger(n) ? steps[n - 1] : undefined)
+        if (input.advance === true) {
+          const now = steps.find(s => s.status === 'active')
+          if (now) now.status = 'done'
+          const nextUp = steps.find(s => s.status === 'pending')
+          if (nextUp) nextUp.status = 'active'
+        }
+        for (const n of Array.isArray(input.done) ? input.done : []) {
+          const s = at(n)
+          if (s) s.status = 'done'
+        }
+        const s = at(input.start)
+        if (s) s.status = 'active'
+      }
+      await applyList($, prev?.title, steps, 'plan')
+    } catch {
+      // Mirroring only: the app's own list is never touched.
+    }
+    return r
+  })
+
+  // wrap_up checks off the app's list: the step still running is done.
+  on('tool.call', { tool: 'mcp__ccd_turn__wrap_up' }, async ($, e, next) => {
+    const r = await next(e)
+    try {
+      const prev = await read($, list)
+      if (prev?.source === 'plan' && prev.items.some(i => i.status === 'active'))
+        await applyList($, prev.title, prev.items.map(i => ({ ...i, status: i.status === 'active' ? 'done' : i.status })), 'plan')
+    } catch {
+      // Mirroring only.
+    }
+    return r
+  })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const l = await read($, list)

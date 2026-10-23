@@ -17,7 +17,8 @@ export type Item = {
   goal?: string
 }
 // at / tokAt: clock and token meter at the last update, the start for a step done without being active.
-export type List = { title: string; items: Item[]; at?: number; tokAt?: number }
+// source: what drew it, the mod's own set tool or the app's task list (update_plan). set wins.
+export type List = { title: string; items: Item[]; at?: number; tokAt?: number; source?: 'set' | 'plan' }
 // tokens: new tokens across every model response this session (input, cache writes, output).
 // model: the model that last answered on the main thread.
 export type Meter = { tokens: number; model: string }
