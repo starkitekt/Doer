@@ -85,6 +85,9 @@ const runTotal = (items: Item[]) => {
 }
 
 const STATUSES: Status[] = ['done', 'active', 'pending', 'wait']
+// A string (or finite number) as one trimmed line, capped; anything else is ''.
+const oneLine = (v: unknown, max: number) =>
+  typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) ? String(v).replace(/\s+/g, ' ').trim().slice(0, max) : ''
 
 const DESCRIPTION = [
   'Shows the person a live checklist above their prompt; its title is the goal you are solving, stated as the outcome. Call it at the start of every multi-step task,',
@@ -175,10 +178,8 @@ async function refreshSync($: EngineInterface) {
   syncSeen = mtime
   let s: Sync | null = null
   if (st) {
-    const [a, b, c] = String(await $.fs.read(syncPath)).trim().split(/\s+/)
-    const pushed = parseInt(a ?? '', 10)
-    const failed = parseInt(b ?? '', 10)
-    if (Number.isFinite(pushed) && Number.isFinite(failed)) s = { pushed, failed, lastFailed: c === 'fail' }
+    const [a = '', b = '', c] = String(await $.fs.read(syncPath)).trim().split(/\s+/)
+    if (/^\d+$/.test(a) && /^\d+$/.test(b)) s = { pushed: Number(a), failed: Number(b), lastFailed: c === 'fail' }
   }
   await update($, sync, () => s)
 }
@@ -192,6 +193,9 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     refreshGit($)
+    // A new session may have a new HOME, and must read the counter even if the file is unchanged.
+    syncPath = ''
+    syncSeen = -1
     const checkSync = () => void refreshSync($).catch(() => undefined)
     checkSync()
     syncTimer?.cancel()
@@ -231,7 +235,8 @@ export const register: Register = on => {
       if (!r.deny && r.agentId && r.model) {
         const id = r.agentId
         const model = r.model
-        await update($, agentModels, a => ({ ...(a ?? {}), [id]: model }))
+        // The latest 50 are plenty for the running ones, so a long session never piles them up.
+        await update($, agentModels, a => Object.fromEntries([...Object.entries(a ?? {}).slice(-49), [id, model]]))
       }
     } catch {
       // Bookkeeping only: a failure here never touches the spawn.
@@ -257,16 +262,31 @@ export const register: Register = on => {
     const m = (await read($, meter)) ?? { tokens: 0, model: '' }
     const prev = await read($, list)
     const before = prev?.items ?? []
-    const items: Item[] = raw
+    const title = oneLine(input.title, 120) || 'Tasks'
+    // Steps with no usable text are dropped, so a bad payload never draws a blank row.
+    const clean = raw
       .filter((i): i is { text: unknown; status: unknown; model?: unknown; goal?: unknown } => typeof i === 'object' && i !== null)
-      .map((i, n) => {
-        const text = String(i.text ?? '').slice(0, 200)
+      .map(i => ({ ...i, text: oneLine(i.text, 200) }))
+      .filter(i => i.text)
+    const texts = new Set(clean.map(i => i.text))
+    const used = new Set<number>()
+    // The same step from the last update, each one claimed once: same text at the same place, else
+    // the same text anywhere, else (same list, renamed step) whatever sat at that place, if its text is gone.
+    const claim = (text: string, n: number) => {
+      const free = (k: number) => k >= 0 && k < before.length && !used.has(k)
+      let k = free(n) && before[n]?.text === text ? n : before.findIndex((b, j) => free(j) && b.text === text)
+      if (k < 0 && prev?.title === title && free(n) && !texts.has(before[n]?.text ?? '')) k = n
+      if (k < 0) return undefined
+      used.add(k)
+      return before[k]
+    }
+    const items: Item[] = clean.map((i, n) => {
+        const text = i.text
         const status: Status = (STATUSES as unknown[]).includes(i.status) ? (i.status as Status) : 'pending'
-        // The same step from the last update: by text, else by position.
-        const was = before.find(b => b.text === text) ?? before[n]
+        const was = claim(text, n)
         const asked = typeof i.model === 'string' && i.model.trim() ? shortModel(i.model) : undefined
         const item: Item = { text, status, model: asked ?? was?.model ?? (m.model ? shortModel(m.model) : undefined) }
-        const goal = typeof i.goal === 'string' && i.goal.trim() ? i.goal.trim().slice(0, 160) : was?.goal
+        const goal = oneLine(i.goal, 160) || was?.goal
         if (goal) item.goal = goal
         if (was?.startedAt !== undefined) {
           item.startedAt = was.startedAt
@@ -289,7 +309,6 @@ export const register: Register = on => {
         }
         return item
       })
-    const title = typeof input.title === 'string' ? input.title.slice(0, 120) : 'Tasks'
     const next: List | null = items.length ? { title, items, at: now, tokAt: m.tokens } : null
     await update($, list, () => next)
     const done = items.filter(i => i.status === 'done').length
@@ -325,7 +344,9 @@ export const register: Register = on => {
     const s = await read($, sync)
     // Context gauge: grey, amber from 75%, red from 85% (auto-compact is near).
     const usage = await $.session.usage().catch(() => undefined)
-    const pct = usage?.context.percent
+    // Rounded first, so the colour matches the number shown; not a number, no gauge.
+    const rawPct = usage?.context.percent
+    const pct = typeof rawPct === 'number' && Number.isFinite(rawPct) ? Math.min(100, Math.max(0, Math.round(rawPct))) : undefined
     const total = runTotal(l.items)
     // What the active step's agent is solving: its own goal, else the description of a running
     // subagent on the step's model.
@@ -430,7 +451,7 @@ export const register: Register = on => {
           ) : null}
           {pct !== undefined ? (
             <Text key="ctx" size="footnote" color={pct >= 85 ? 'error' : pct >= 75 ? 'warning' : P.grey} tabular>
-              {`Context ${Math.round(pct)}%`}
+              {`Context ${pct}%`}
             </Text>
           ) : null}
           {g ? (
