@@ -19,9 +19,12 @@ export type List = { title: string; items: Item[]; at?: number; tokAt?: number }
 // tokens: new tokens across every model response this session (input, cache writes, output).
 // model: the model that last answered on the main thread.
 export type Meter = { tokens: number; model: string }
+// The git chip: the most urgent state of the session's repo, read when a turn ends.
+// tone: 'alert' (conflicts, checks failing), 'ok' (clean), 'quiet' (everything else).
+export type Git = { label: string; tone: 'alert' | 'ok' | 'quiet' }
 
 declare module 'claude-code' {
   interface PluginState {
-    'live-checklist': { list: List | null; isOpen: boolean; meter: Meter }
+    'live-checklist': { list: List | null; isOpen: boolean; meter: Meter; git: Git | null }
   }
 }

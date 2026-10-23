@@ -3,13 +3,57 @@
 // Keep this notice in all copies and derived works (MIT License, see LICENSE).
 
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
-import type { Item, List, Meter, Status } from '../types'
+import type { Git, Item, List, Meter, Status } from '../types'
 
 const list = atom({ plugin: 'live-checklist', key: 'list' } as const, null)
 const isOpen = atom({ plugin: 'live-checklist', key: 'isOpen' } as const, true)
 const meter = atom({ plugin: 'live-checklist', key: 'meter' } as const, { tokens: 0, model: '' } as Meter)
+const git = atom({ plugin: 'live-checklist', key: 'git' } as const, null as Git | null)
+
+// The repo's one most urgent state, in this order: conflicts, checks failing, checks running,
+// unpushed commits, changed files, else clean. null outside a git repo. Read-only: it runs
+// git status and, once the last commit is pushed, gh for its CI runs (skipped if gh is missing).
+type Run = (argv: string[], timeoutMs: number) => Promise<{ exitCode: number; stdout: string }>
+const readGit = async (run: Run): Promise<Git | null> => {
+  const st = await run(['git', 'status', '--porcelain=v2', '--branch'], 5000)
+  if (st.exitCode !== 0) return null
+  let branch = ''
+  let sha = ''
+  let ahead = 0
+  let hasUpstream = false
+  let changed = 0
+  let conflicts = 0
+  for (const line of st.stdout.split('\n')) {
+    if (line.startsWith('# branch.head ')) branch = line.slice(14).trim()
+    else if (line.startsWith('# branch.oid ')) sha = line.slice(13).trim()
+    else if (line.startsWith('# branch.upstream ')) hasUpstream = true
+    else if (line.startsWith('# branch.ab ')) ahead = Math.abs(parseInt(line.slice(12), 10)) || 0
+    else if (line.startsWith('u ')) conflicts++
+    else if (/^[12?] /.test(line)) changed++
+  }
+  const where = branch === '(detached)' || !branch ? sha.slice(0, 7) || 'git' : branch
+  const say = (state: string, tone: Git['tone']): Git => ({ label: `${where} · ${state}`, tone })
+  if (conflicts) return say('Conflicts', 'alert')
+  // CI only knows commits that are pushed.
+  if (hasUpstream && ahead === 0 && /^[0-9a-f]{40}$/.test(sha)) {
+    try {
+      const ci = await run(['gh', 'run', 'list', '--commit', sha, '--json', 'status,conclusion', '--limit', '30'], 8000)
+      if (ci.exitCode === 0) {
+        const runs = JSON.parse(ci.stdout) as { status?: string; conclusion?: string }[]
+        if (runs.some(r => r.status === 'completed' && ['failure', 'timed_out', 'startup_failure'].includes(r.conclusion ?? '')))
+          return say('Checks failing', 'alert')
+        if (runs.some(r => r.status !== 'completed')) return say('Checks running', 'quiet')
+      }
+    } catch {
+      // No gh, not signed in, or no network: the chip goes on without CI.
+    }
+  }
+  if (ahead) return say(`${ahead} unpushed`, 'quiet')
+  if (changed) return say(`${changed} changed`, 'quiet')
+  return say('clean', 'ok')
+}
 
 // 'claude-opus-5-5' -> 'Opus'. Anything unrecognised is kept, cut to 8 characters.
 const shortModel = (m: string) => {
@@ -83,8 +127,30 @@ const busy = (color: string) =>
 const ALT: Record<Status, string> = { done: 'Done', active: 'In progress', pending: 'Not started', wait: 'Waiting on you' }
 const TEXT_MARK: Record<Status, string> = { done: '✓', active: '◌', pending: '○', wait: '○' }
 
+// Re-read the git chip in the background, one read at a time, so a turn never waits on git or gh.
+let reading = false
+function refreshGit($: EngineInterface) {
+  if (reading) return
+  reading = true
+  const run: Run = (argv, timeoutMs) => $.process.run(argv, { timeoutMs })
+  void readGit(run)
+    .catch(() => null)
+    .then(g => update($, git, () => g))
+    .catch(() => undefined)
+    .finally(() => {
+      reading = false
+    })
+}
+
 export const register: Register = on => {
+  on('turn.complete', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agentId === undefined) refreshGit($)
+    return r
+  })
+
   on('session.start', async ($, e, next) => {
+    refreshGit($)
     await $.tool.register({
       name: 'set',
       description: DESCRIPTION,
@@ -192,6 +258,7 @@ export const register: Register = on => {
     // A row saved without a model (an older copy, or set before any response) shows the session's.
     const m = await read($, meter)
     const sessionModel = m?.model ? shortModel(m.model) : ''
+    const g = await read($, git)
 
     const done = l.items.filter(i => i.status === 'done')
     const rest = l.items.filter(i => i.status !== 'done')
@@ -258,10 +325,17 @@ export const register: Register = on => {
     // No card or border of its own: the app's grey tray around the band is the frame.
     return (
       <Box flexDirection="column" rowGap={1} paddingX="md" paddingY="sm">
-        <Box key="head" flexDirection="row" alignItems="center">
-          <Text key="title" weight="bold" color="text" wrap="truncate-end">
-            {l.title}
-          </Text>
+        <Box key="head" flexDirection="row" alignItems="center" gap="sm">
+          <Box key="tb" flexGrow={1} flexShrink={1}>
+            <Text key="title" weight="bold" color="text" wrap="truncate-end">
+              {l.title}
+            </Text>
+          </Box>
+          {g ? (
+            <Text key="git" size="footnote" color={g.tone === 'alert' ? 'error' : g.tone === 'ok' ? P.accent : P.grey} wrap="truncate-end">
+              {g.label}
+            </Text>
+          ) : null}
         </Box>
         <Box key="rows" flexDirection="column" gap="xs">
           {done.length > shownDone.length ? note('earlier', `${done.length - shownDone.length} earlier done`) : null}

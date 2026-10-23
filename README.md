@@ -11,6 +11,21 @@ A live checklist that floats above the Claude Code prompt. Claude sets the goal 
 
 Rows use the app's own font at your interface size. It works on light and dark themes and sits straight on the app's tray above the prompt, with no card or border of its own.
 
+## Git chip
+
+When the session runs inside a git repository, the right end of the header shows the branch and its most urgent state, one at a time. It is read only, so it never commits, pushes or merges.
+
+| Shows | When | Colour |
+|---|---|---|
+| `Conflicts` | a merge or rebase has unresolved files | red |
+| `Checks failing` | a CI run on the last pushed commit failed | red |
+| `Checks running` | CI on the last pushed commit is still going | grey |
+| `2 unpushed` | commits not yet on the remote branch | grey |
+| `5 changed` | files changed or added but not committed | grey |
+| `clean` | none of the above | green |
+
+The chip refreshes when a session starts and when each turn ends, in the background, so it never slows Claude down. CI states need the [GitHub CLI](https://cli.github.com) (`gh`) signed in; without it the chip skips them. Outside a git repository the chip is hidden.
+
 ## Install
 
 At the prompt of a Claude Code terminal session:
