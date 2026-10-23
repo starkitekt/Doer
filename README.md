@@ -4,7 +4,8 @@ A live checklist that floats above the Claude Code prompt. Claude sets the goal 
 
 - **Done:** green disc with a tick, green text, and the tokens and time the step took at the right
 - **In progress:** slowly turning dotted ring, marked *in progress* in serif italics
-- **Not started:** filled light grey circle, grey text
+- **Not started:** filled light grey circle
+- The header and the steps not yet done use the app's own text colour, so they match the chat
 - Each row starts with the model that runs the step, so the steps line up in one column
 - Circles sit on the text baseline
 

@@ -38,7 +38,8 @@ const DESCRIPTION = [
 
 // Colours per theme. Text and green sit as light as they can while still at least 5:1:
 // light on the app's grey tray (#F0F0EF), dark on #1F1E1D, #262624 and #30302E.
-// ring: the active spinner. open: the to-do circles, one solid grey in every theme (1.6:1 on the tray, so it reads without competing with text).
+// The header and task text use the app's own 'text' colour, so they match the chat in every theme;
+// grey is for the model column, stats and notes. ring: the active spinner. open: the to-do circles, one solid grey in every theme (1.6:1 on the tray, so it reads without competing with text).
 // 'mid' is for a theme the band cannot tell; its green is the best balance for both (3.85:1).
 type Palette = { accent: string; tick: string; grey: string; ring: string; open: string; fill: string; ink: string }
 const PALETTES: Record<'light' | 'dark' | 'mid', Palette> = {
@@ -232,7 +233,7 @@ export const register: Register = on => {
           </Box>
           {glyph(i.status, k + 'g')}
           <Box key={k + 'b'} flexGrow={1} flexShrink={1} flexDirection="row" alignItems="center" gap="sm">
-            <Text key="t" color={isDone ? P.accent : isNow ? P.ink : P.grey} weight="regular" wrap="truncate-end">
+            <Text key="t" color={isDone ? P.accent : 'text'} weight="regular" wrap="truncate-end">
               {i.text}
             </Text>
             {isNow ? (
@@ -258,7 +259,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" rowGap={1} paddingX="md" paddingY="sm">
         <Box key="head" flexDirection="row" alignItems="center">
-          <Text key="title" weight="bold" color={P.ink} wrap="truncate-end">
+          <Text key="title" weight="bold" color="text" wrap="truncate-end">
             {l.title}
           </Text>
         </Box>
