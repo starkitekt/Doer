@@ -188,6 +188,9 @@ export const register: Register = on => {
     }
     const P = PALETTES[mode]
     const G = GLYPHS[mode]
+    // A row saved without a model (an older copy, or set before any response) shows the session's.
+    const m = await read($, meter)
+    const sessionModel = m?.model ? shortModel(m.model) : ''
 
     const done = l.items.filter(i => i.status === 'done')
     const rest = l.items.filter(i => i.status !== 'done')
@@ -224,7 +227,7 @@ export const register: Register = on => {
         <Box key={k} flexDirection="row" alignItems="center" gap="sm">
           <Box key={k + 'm'} width={7} flexShrink={0}>
             <Text key="m" size="footnote" weight="medium" color={P.grey} wrap="truncate-end">
-              {i.model ?? ''}
+              {i.model ?? sessionModel}
             </Text>
           </Box>
           {glyph(i.status, k + 'g')}
