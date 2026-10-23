@@ -26,6 +26,10 @@ When the session runs inside a git repository, the right end of the header shows
 
 The chip refreshes when a session starts and when each turn ends, in the background, so it never slows Claude down. CI states need the [GitHub CLI](https://cli.github.com) (`gh`) signed in; without it the chip skips them. Outside a git repository the chip is hidden.
 
+## Sync counter
+
+If a script of yours syncs a repository on its own (a Stop hook that commits and pushes, say), it can write `<pushed> <failed> <ok|fail>` to `~/.claude/autosync.count`. The header then shows `4 pushed · 1 failed` at the right, red when the last sync failed. Without that file there is no counter.
+
 ## Install
 
 At the prompt of a Claude Code terminal session:
