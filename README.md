@@ -30,6 +30,14 @@ The chip refreshes when a session starts and when each turn ends, in the backgro
 
 If a script of yours syncs a repository on its own (a Stop hook that commits and pushes, say), it can write `<pushed> <failed> <ok|fail>` to `~/.claude/autosync.count`. The header then shows `4 pushed · 1 failed` at the right, red when the last sync failed. Without that file there is no counter.
 
+## Run total and context gauge
+
+Once a step is done, the header shows the run so far at the right: `14m · 84k T`, the time and tokens of every done step added up. Beside it, `Context 64%` is how full the session's context window is. It is grey, turns amber from 75% and red from 85%, so you see auto-compact coming.
+
+## Solving line
+
+The active step gets a dim second line, `Solving: …`, saying what its agent is working on. Claude can set it per step with `goal` (the problem and when it is done, one line). Without one, the line shows the task description of a running subagent on the step's model.
+
 ## Install
 
 At the prompt of a Claude Code terminal session:
