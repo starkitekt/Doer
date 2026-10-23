@@ -15,12 +15,12 @@ const sync = atom({ plugin: 'live-checklist', key: 'sync' } as const, null as Sy
 const agentModels = atom({ plugin: 'live-checklist', key: 'agentModels' } as const, {} as AgentModels)
 
 // The repo's one most urgent state, in this order: conflicts, checks failing, checks running,
-// unpushed commits, changed files, else clean. null outside a git repo. Read-only: it runs
+// unpushed commits, changed files, no remote, else clean. 'No repo' outside a git repo. Read-only: it runs
 // git status and, once the last commit is pushed, gh for its CI runs (skipped if gh is missing).
 type Run = (argv: string[], timeoutMs: number) => Promise<{ exitCode: number; stdout: string }>
 const readGit = async (run: Run): Promise<Git | null> => {
   const st = await run(['git', 'status', '--porcelain=v2', '--branch'], 5000)
-  if (st.exitCode !== 0) return null
+  if (st.exitCode !== 0) return { label: 'No repo', tone: 'quiet' }
   let branch = ''
   let sha = ''
   let ahead = 0
@@ -54,6 +54,11 @@ const readGit = async (run: Run): Promise<Git | null> => {
   }
   if (ahead) return say(`${ahead} unpushed`, 'quiet')
   if (changed) return say(`${changed} changed`, 'quiet')
+  // A repo with no remote has nowhere to push to: say so instead of 'clean'.
+  if (!hasUpstream) {
+    const rm = await run(['git', 'remote'], 5000).catch(() => undefined)
+    if (rm?.exitCode === 0 && !rm.stdout.trim()) return say('no remote', 'quiet')
+  }
   return say('clean', 'ok')
 }
 

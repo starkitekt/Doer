@@ -22,9 +22,11 @@ When the session runs inside a git repository, the right end of the header shows
 | `Checks running` | CI on the last pushed commit is still going | grey |
 | `2 unpushed` | commits not yet on the remote branch | grey |
 | `5 changed` | files changed or added but not committed | grey |
+| `no remote` | the repository has no remote to push to | grey |
 | `clean` | none of the above | green |
+| `No repo` | the session is not inside a git repository | grey |
 
-The chip refreshes when a session starts and when each turn ends, in the background, so it never slows Claude down. CI states need the [GitHub CLI](https://cli.github.com) (`gh`) signed in; without it the chip skips them. Outside a git repository the chip is hidden.
+The chip refreshes when a session starts and when each turn ends, in the background, so it never slows Claude down. CI states need the [GitHub CLI](https://cli.github.com) (`gh`) signed in; without it the chip skips them.
 
 ## Sync counter
 
