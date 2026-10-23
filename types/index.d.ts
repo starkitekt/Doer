@@ -22,9 +22,11 @@ export type Meter = { tokens: number; model: string }
 // The git chip: the most urgent state of the session's repo, read when a turn ends.
 // tone: 'alert' (conflicts, checks failing), 'ok' (clean), 'quiet' (everything else).
 export type Git = { label: string; tone: 'alert' | 'ok' | 'quiet' }
+// The auto-sync tally from ~/.claude/autosync.count: pushes that went up, ones that failed, and whether the last one failed.
+export type Sync = { pushed: number; failed: number; lastFailed: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
-    'live-checklist': { list: List | null; isOpen: boolean; meter: Meter; git: Git | null }
+    'live-checklist': { list: List | null; isOpen: boolean; meter: Meter; git: Git | null; sync: Sync | null }
   }
 }

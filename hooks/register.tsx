@@ -5,12 +5,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Git, Item, List, Meter, Status } from '../types'
+import type { Git, Item, List, Meter, Status, Sync } from '../types'
 
 const list = atom({ plugin: 'live-checklist', key: 'list' } as const, null)
 const isOpen = atom({ plugin: 'live-checklist', key: 'isOpen' } as const, true)
 const meter = atom({ plugin: 'live-checklist', key: 'meter' } as const, { tokens: 0, model: '' } as Meter)
 const git = atom({ plugin: 'live-checklist', key: 'git' } as const, null as Git | null)
+const sync = atom({ plugin: 'live-checklist', key: 'sync' } as const, null as Sync | null)
 
 // The repo's one most urgent state, in this order: conflicts, checks failing, checks running,
 // unpushed commits, changed files, else clean. null outside a git repo. Read-only: it runs
@@ -142,6 +143,32 @@ function refreshGit($: EngineInterface) {
     })
 }
 
+// The sync counter: an auto-sync script writes "<pushed> <failed> <ok|fail>" to
+// ~/.claude/autosync.count. Checked every few seconds (a stat, read only when it changed),
+// since the script runs after the turn ends. No file, no counter.
+let syncPath = ''
+let syncSeen = -1
+let syncTimer: { cancel: () => void } | undefined
+async function refreshSync($: EngineInterface) {
+  if (!syncPath) {
+    const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+    if (!home) return
+    syncPath = `${home}/.claude/autosync.count`
+  }
+  const st = await $.fs.stat(syncPath).catch(() => undefined)
+  const mtime = st?.mtimeMs ?? 0
+  if (mtime === syncSeen) return
+  syncSeen = mtime
+  let s: Sync | null = null
+  if (st) {
+    const [a, b, c] = String(await $.fs.read(syncPath)).trim().split(/\s+/)
+    const pushed = parseInt(a ?? '', 10)
+    const failed = parseInt(b ?? '', 10)
+    if (Number.isFinite(pushed) && Number.isFinite(failed)) s = { pushed, failed, lastFailed: c === 'fail' }
+  }
+  await update($, sync, () => s)
+}
+
 export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
@@ -151,6 +178,10 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     refreshGit($)
+    const checkSync = () => void refreshSync($).catch(() => undefined)
+    checkSync()
+    syncTimer?.cancel()
+    syncTimer = $.clock.every(4000, checkSync)
     await $.tool.register({
       name: 'set',
       description: DESCRIPTION,
@@ -259,6 +290,7 @@ export const register: Register = on => {
     const m = await read($, meter)
     const sessionModel = m?.model ? shortModel(m.model) : ''
     const g = await read($, git)
+    const s = await read($, sync)
 
     const done = l.items.filter(i => i.status === 'done')
     const rest = l.items.filter(i => i.status !== 'done')
@@ -334,6 +366,11 @@ export const register: Register = on => {
           {g ? (
             <Text key="git" size="footnote" color={g.tone === 'alert' ? 'error' : g.tone === 'ok' ? P.accent : P.grey} wrap="truncate-end">
               {g.label}
+            </Text>
+          ) : null}
+          {s ? (
+            <Text key="sync" size="footnote" color={s.lastFailed ? 'error' : P.grey} tabular>
+              {`${s.pushed} pushed · ${s.failed} failed`}
             </Text>
           ) : null}
         </Box>
