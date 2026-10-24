@@ -72,7 +72,7 @@ In the desktop app, where `/plugin` does not run: click **+** next to the prompt
 
 The mod gives Claude a tool, `set`. Claude calls it with a title and a list of steps (`done`, `active`, `pending` or `wait`) whenever a step starts or finishes. Titles, steps and goals are kept to one line; a step with no text is skipped, and a blank title reads `Tasks`.
 
-In the desktop app the band also follows the app's own task list (the steps Claude ticks off under its message), so it fills in every chat with no extra call. Once Claude calls `set` in a chat, `set` owns the band there, with its title and Solving lines. Run `claude plugin test .` for the test suite in `tests/`. To make it a habit, add a line like this to your `CLAUDE.md`:
+In the desktop app the band also follows the app's own task list (the steps Claude ticks off under its message), so it fills in every chat with no extra call. The band follows whichever list changed last, so a chat that calls `set` once and then ticks the app's list still sees its steps finish, with their tokens and time. Run `claude plugin test .` for the test suite in `tests/`. To make it a habit, add a line like this to your `CLAUDE.md`:
 
 > For every multi-step task, show a live checklist with the live-checklist tool. Make the title the goal you are solving, and update it at each step.
 

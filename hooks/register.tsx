@@ -348,13 +348,13 @@ export const register: Register = on => {
   }).catch(() => ({ result: 'Checklist could not be updated.' }))
 
   // The app's own task list (update_plan, checked off by wrap_up) drives the band too, so it fills
-  // in every session without a second call. Once the session calls set, set owns the band.
+  // in every session without a second call. Whichever list moved last owns the band: a session that
+  // calls set once and then only ticks the app's list still sees its steps finish.
   on('tool.call', { tool: 'mcp__ccd_turn__update_plan' }, async ($, e, next) => {
     const r = await next(e)
     if (r.deny || r.isError) return r
     try {
       const prev = await read($, list)
-      if (prev?.source === 'set') return r
       const input = e as unknown as { items?: unknown; advance?: unknown; done?: unknown; start?: unknown }
       let steps: { text: unknown; status: Status }[]
       if (Array.isArray(input.items)) {
@@ -387,12 +387,12 @@ export const register: Register = on => {
     return r
   })
 
-  // wrap_up checks off the app's list: the step still running is done.
+  // wrap_up checks off the list: the step still running is done.
   on('tool.call', { tool: 'mcp__ccd_turn__wrap_up' }, async ($, e, next) => {
     const r = await next(e)
     try {
       const prev = await read($, list)
-      if (prev?.source === 'plan' && prev.items.some(i => i.status === 'active'))
+      if (prev?.items.some(i => i.status === 'active'))
         await applyList($, prev.title, prev.items.map(i => ({ ...i, status: i.status === 'active' ? 'done' : i.status })), 'plan')
     } catch {
       // Mirroring only.

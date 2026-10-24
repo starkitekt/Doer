@@ -500,18 +500,24 @@ test('wrap_up checks off the step still running', async ($, on) => {
   expect(states((await draw()).svgs)).toEqual(['Done', 'Done'])
 })
 
-test('once set is called, set owns the band and the app list is ignored', async ($, on) => {
-  const { set, plan, wrap, draw } = await boot($, on)
-  await plan({ items: [P('plan step', 'in_progress')] })
-  await set({ title: 'Mine', items: [step('own step', 'active', { goal: 'Steps look wrong' })] })
-  await plan({ items: [P('other', 'pending')] })
+test('after set, ticking the app list still finishes steps and shows their tokens', async ($, on) => {
+  const { set, plan, wrap, clock, draw } = await boot($, on)
+  await set({ title: 'Mine', items: [step('own step', 'active', { goal: 'Steps look wrong' }), step('next', 'pending')] })
+  expect((await draw()).all).toContain('Solving: Steps look wrong')
+  await clock.advance(2 * MIN)
   await plan({ advance: true })
-  await wrap()
-  const d = await draw()
+  let d = await draw()
   expect(d.all[0]).toBe('Mine')
-  expect(d.all).toContain('own step')
-  expect(d.all).not.toContain('other')
-  expect(d.all).toContain('Solving: Steps look wrong')
+  expect(states(d.svgs)).toEqual(['Done', 'In progress'])
+  expect(d.all.some(t => t.endsWith('/ 2m'))).toBe(true)
+  await wrap()
+  expect(states((await draw()).svgs)).toEqual(['Done', 'Done'])
+  // A new app list takes the band over, under the same title.
+  await plan({ items: [P('other', 'in_progress')] })
+  d = await draw()
+  expect(d.all[0]).toBe('Mine')
+  expect(d.all).toContain('other')
+  expect(d.all).not.toContain('own step')
 })
 
 test('a refused or failed app list, junk, or a step move with no list leaves the band alone', async ($, on) => {
