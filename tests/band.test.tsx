@@ -176,31 +176,40 @@ test('model names shorten, and a blank one falls back', async ($, on) => {
   for (const m of ['Sonnet', 'Haiku', 'some-ver']) expect(all).toContain(m)
 })
 
-test('a goal is trimmed, capped, single-line, and ignored when not a string', async ($, on) => {
+test('a fix is trimmed, capped, single-line, and ignored when not a string', async ($, on) => {
   const { set, draw } = await boot($, on)
-  await set({ title: 'T', items: [step('a', 'active', { goal: '  why\nit breaks ' + 'g'.repeat(500) })] })
-  const solving = (await draw()).all.find(t => t.startsWith('Solving: ')) ?? ''
-  expect(solving).toStartWith('Solving: why it breaks g')
-  expect(solving.length).toBeLessThanOrEqual('Solving: '.length + 160)
-  await set({ title: 'T2', items: [step('b', 'active', { goal: { x: 1 } })] })
-  expect((await draw()).all.some(t => t.startsWith('Solving: '))).toBe(false)
+  await set({ title: 'T', items: [step('a', 'active', { fix: '  retry\nonce more ' + 'g'.repeat(500) })] })
+  const fix = (await draw()).all.find(t => t.startsWith('Fix: ')) ?? ''
+  expect(fix).toStartWith('Fix: retry once more g')
+  expect(fix.length).toBeLessThanOrEqual('Fix: '.length + 160)
+  await set({ title: 'T2', items: [step('b', 'active', { fix: { x: 1 } })] })
+  expect((await draw()).all.some(t => t.startsWith('Fix: '))).toBe(false)
 })
 
-test('a goal shows only while its step is active', async ($, on) => {
+test('every step shows its fix, and a done one reads Fixed', async ($, on) => {
   const { set, draw } = await boot($, on)
-  await set({ title: 'T', items: [step('a', 'done', { goal: 'g1' }), step('b', 'active', { goal: 'g2' }), step('c', 'pending', { goal: 'g3' }), step('d', 'wait', { goal: 'g4' })] })
-  expect((await draw()).all.filter(t => t.startsWith('Solving: '))).toEqual(['Solving: g2'])
+  await set({ title: 'T', items: [step('a', 'done', { fix: 'f1' }), step('b', 'active', { fix: 'f2' }), step('c', 'pending', { fix: 'f3' }), step('d', 'wait')] })
+  expect((await draw()).all.filter(t => /^Fix(ed)?: /.test(t))).toEqual(['Fixed: f1', 'Fix: f2', 'Fix: f3'])
+})
+
+test('a fix stays with its step when a later update leaves it out, but not with a renamed one', async ($, on) => {
+  const { set, draw } = await boot($, on)
+  await set({ title: 'T', items: [step('a', 'active', { fix: 'keep me' }), step('b', 'pending', { fix: 'old b' })] })
+  await set({ title: 'T', items: [step('a', 'done'), step('b2', 'active')] })
+  const { all } = await draw()
+  expect(all).toContain('Fixed: keep me')
+  expect(all).not.toContain('Fix: old b')
 })
 
 // ---- Step identity and timing ---------------------------------------------------------------
 
-test('a new list does not inherit the old list goals, models or timers', async ($, on) => {
+test('a new list does not inherit the old list fixes, models or timers', async ($, on) => {
   const { set, draw, clock } = await boot($, on)
-  await set({ title: 'Alpha', items: [step('Find leak', 'active', { goal: 'old problem', model: 'Opus' })] })
+  await set({ title: 'Alpha', items: [step('Find leak', 'active', { fix: 'old problem', model: 'Opus' })] })
   await clock.advance(10 * MIN)
   await set({ title: 'Beta', items: [step('Write docs', 'active')] })
   const during = await draw()
-  expect(during.all).not.toContain('Solving: old problem')
+  expect(during.all).not.toContain('Fix: old problem')
   expect(during.all).not.toContain('Opus')
   await clock.advance(2 * MIN)
   await set({ title: 'Beta', items: [step('Write docs', 'done')] })
@@ -385,17 +394,17 @@ test('the sync counter follows the file as it changes', async ($, on) => {
   expect((await draw()).all.some(t => t.includes('pushed'))).toBe(false)
 })
 
-// ---- Solving line from subagents ------------------------------------------------------------
+// ---- Agent line from subagents ------------------------------------------------------------
 
 const agent = (id: string, description: string, extra: object = {}) => ({ id, description, type: 'general-purpose', status: 'running', ...extra })
 
-test('without a goal, the line names a running subagent on the step model', async ($, on) => {
+test('an active step without a fix names a running subagent on the step model', async ($, on) => {
   const world: World = { spawn: { model: 'claude-haiku-5-5', agentId: 'a1' } }
   const { set, draw } = await boot($, on, world)
   await $.agent.spawn({ prompt: 'p', description: 'band misses steps' })
   world.agents = [agent('a1', 'band misses steps')]
   await set({ title: 'T', items: [step('x', 'active', { model: 'Haiku' }), step('y', 'active', { model: 'Opus' })] })
-  expect((await draw()).all.filter(t => t.startsWith('Solving: '))).toEqual(['Solving: band misses steps'])
+  expect((await draw()).all.filter(t => t.startsWith('Agent: '))).toEqual(['Agent: band misses steps'])
 })
 
 test('finished, nested and unknown subagents are not named', async ($, on) => {
@@ -404,7 +413,7 @@ test('finished, nested and unknown subagents are not named', async ($, on) => {
   await $.agent.spawn({ prompt: 'p', description: 'd' })
   world.agents = [agent('a1', 'done one', { status: 'completed' }), agent('a1', 'nested', { parentId: 'p' }), agent('zz', 'stranger')]
   await set({ title: 'T', items: [step('x', 'active', { model: 'Haiku' })] })
-  expect((await draw()).all.some(t => t.startsWith('Solving: '))).toBe(false)
+  expect((await draw()).all.some(t => t.startsWith('Agent: '))).toBe(false)
 })
 
 test('a refused spawn passes through untouched and is not recorded', async ($, on) => {
@@ -414,7 +423,7 @@ test('a refused spawn passes through untouched and is not recorded', async ($, o
   expect(JSON.stringify(r)).toContain('not allowed')
   world.agents = [agent('a1', 'ghost')]
   await set({ title: 'T', items: [step('x', 'active', { model: 'Haiku' })] })
-  expect((await draw()).all.some(t => t.startsWith('Solving: '))).toBe(false)
+  expect((await draw()).all.some(t => t.startsWith('Agent: '))).toBe(false)
 })
 
 test('a failing agent list still draws the band', async ($, on) => {
@@ -464,99 +473,51 @@ test('a survey or an empty list hands the band back to the engine', async ($, on
   expect((await draw()).all).toEqual(['engine'])
 })
 
-// ---- The app's task list ---------------------------------------------------------------------
+// ---- Never a copy of the app's task list ----------------------------------------------------
 
-const P = (content: string, status: string) => ({ content, status })
 // Each row's state, read from its glyph: Done, In progress, Not started.
 const states = (svgs: string[]) => svgs.filter(a => a !== 'in progress')
+const P = (content: string, status: string) => ({ content, status })
 
-test("the app's task list fills the band, in the band's words", async ($, on) => {
-  const { plan, draw } = await boot($, on)
-  const r = await plan({ items: [P('Read code', 'completed'), P('Fix it', 'in_progress'), P('Test', 'pending'), P('Odd', 'weird')], scope: 'first_task' })
+test("the app's task list never reaches the band", async ($, on) => {
+  const { set, plan, draw } = await boot($, on)
+  const r = await plan({ items: [P('Read code', 'completed'), P('Fix it', 'in_progress')], scope: 'first_task' })
   expect(r.result).toBe('Plan shown.')
-  const d = await draw()
-  expect(d.all[0]).toBe('Tasks')
-  expect(states(d.svgs)).toEqual(['Done', 'In progress', 'Not started', 'Not started'])
-})
-
-test('advance, done and start move the steps as the app does', async ($, on) => {
-  const { plan, clock, draw } = await boot($, on)
-  await plan({ items: [P('a', 'in_progress'), P('b', 'pending'), P('c', 'pending'), P('d', 'pending')] })
-  await clock.advance(2 * MIN)
-  await plan({ advance: true })
-  expect(states((await draw()).svgs)).toEqual(['Done', 'In progress', 'Not started', 'Not started'])
-  expect((await draw()).all.some(t => t.endsWith('/ 2m'))).toBe(true)
-  await plan({ done: [2, 3], start: 4 })
-  expect(states((await draw()).svgs)).toEqual(['Done', 'Done', 'Done', 'In progress'])
-  // Out of range or junk numbers change nothing.
-  await plan({ done: [0, 9, 'x', 1.5], start: -1 })
-  expect(states((await draw()).svgs)).toEqual(['Done', 'Done', 'Done', 'In progress'])
-})
-
-test('wrap_up checks off the step still running', async ($, on) => {
-  const { plan, wrap, draw } = await boot($, on)
-  await plan({ items: [P('a', 'completed'), P('b', 'in_progress')] })
-  expect((await wrap()).result).toBe('Wrapped.')
-  expect(states((await draw()).svgs)).toEqual(['Done', 'Done'])
-})
-
-test('after set, ticking the app list still finishes steps and shows their tokens', async ($, on) => {
-  const { set, plan, wrap, clock, draw } = await boot($, on)
-  await set({ title: 'Mine', items: [step('own step', 'active', { goal: 'Steps look wrong' }), step('next', 'pending')] })
-  expect((await draw()).all).toContain('Solving: Steps look wrong')
-  await clock.advance(2 * MIN)
-  await plan({ advance: true })
-  let d = await draw()
-  expect(d.all[0]).toBe('Mine')
-  expect(states(d.svgs)).toEqual(['Done', 'In progress'])
-  expect(d.all.some(t => t.endsWith('/ 2m'))).toBe(true)
-  await wrap()
-  expect(states((await draw()).svgs)).toEqual(['Done', 'Done'])
-  // A new app list takes the band over, under the same title.
-  await plan({ items: [P('other', 'in_progress')] })
-  d = await draw()
-  expect(d.all[0]).toBe('Mine')
-  expect(d.all).toContain('other')
-  expect(d.all).not.toContain('own step')
-})
-
-test('a refused or failed app list, junk, or a step move with no list leaves the band alone', async ($, on) => {
-  const world: World = {}
-  const { plan, wrap, draw } = await boot($, on, world)
-  expect((await plan({ advance: true })).result).toBe('Plan shown.')
-  await wrap()
   expect((await draw()).all).toEqual(['engine'])
-  await plan({ items: [P('kept', 'pending')] })
-  for (const mode of ['deny', 'error'] as const) {
-    world.plan = mode
-    const r = await plan({ items: [P('lost', 'pending')] })
-    expect(mode === 'deny' ? r.deny : r.isError).toBeTruthy()
-  }
-  world.plan = 'ok'
-  for (const junk of [{ items: 'x' }, { items: [null, 3, { status: 'pending' }] }, { done: 'all' }, {}]) await plan(junk)
+  await set({ title: 'Mine', items: [step('Login fails', 'active', { fix: 'Retry once' }), step('Slow page', 'pending', { fix: 'Cache it' })] })
+  for (const input of [{ items: [P('Other', 'in_progress')] }, { advance: true }, { done: [1, 2], start: 2 }]) await plan(input)
   const d = await draw()
-  expect(d.all).toContain('kept')
-  expect(d.all).not.toContain('lost')
+  expect(d.all[0]).toBe('Mine')
+  expect(d.all).not.toContain('Other')
+  expect(d.all).not.toContain('Read code')
+  expect(states(d.svgs)).toEqual(['In progress', 'Not started'])
 })
 
-test('a new app list keeps the time of a step it carries over', async ($, on) => {
-  const { plan, clock, draw } = await boot($, on)
-  await plan({ items: [P('a', 'in_progress'), P('b', 'pending')] })
-  await clock.advance(3 * MIN)
-  await plan({ items: [P('a', 'completed'), P('b', 'in_progress'), P('c', 'pending')] })
-  expect((await draw()).all.some(t => t.endsWith('/ 3m'))).toBe(true)
+test("wrap_up finishes the band's own running step, with its time", async ($, on) => {
+  const { set, wrap, clock, draw } = await boot($, on)
+  expect((await wrap()).result).toBe('Wrapped.')
+  expect((await draw()).all).toEqual(['engine'])
+  await set({ title: 'T', items: [step('a', 'done', { fix: 'f' }), step('b', 'active', { fix: 'g' })] })
+  await clock.advance(2 * MIN)
+  await wrap()
+  const d = await draw()
+  expect(states(d.svgs)).toEqual(['Done', 'Done'])
+  expect(d.all).toContain('Fixed: g')
+  expect(d.all.some(t => t.endsWith('/ 2m'))).toBe(true)
 })
 
 // ---- Wording --------------------------------------------------------------------------------
 
-test('a prompt with a task list tool is told to word steps as the problem, once', async ($, on) => {
+test('only a prompt that can draw the band is told what it is for, once', async ($, on) => {
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'hi', scope: 'shared' }] }) as any)
   await boot($, on)
   const compose = async (tools: string[]) =>
     ((await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['desktop'], tools, outputStyle: null, traits: [] } as any)) as any).sections as { id: string; text: string }[]
   const ids = async (tools: string[]) => (await compose(tools)).map(s => s.id)
-  expect(await ids([PLAN])).toEqual(['intro', 'live-checklist:wording'])
-  expect(await ids([SET, PLAN])).toEqual(['intro', 'live-checklist:wording'])
+  expect(await ids([SET, PLAN])).toEqual(['intro', 'live-checklist:explainer'])
+  expect(await ids([PLAN])).toEqual(['intro'])
   expect(await ids(['Bash'])).toEqual(['intro'])
-  expect((await compose([SET]))[1]?.text).toContain('never what you will do')
+  const text = (await compose([SET]))[1]?.text ?? ''
+  expect(text).toContain('Never copy steps')
+  expect(text).toContain('fix:')
 })

@@ -1,6 +1,6 @@
 # Doer
 
-A live checklist that floats above the Claude Code prompt. Claude sets the problem it is solving as the header, then ticks steps off as it works, each one named in plain words for what it fixes, so you always know what is being solved.
+A problem-and-fix explainer that floats above the Claude Code prompt. Each row is a problem you would notice, with a plain line under it on how it gets fixed, ticked off as Claude works. It is its own layer: it never copies the app's task list, which says what Claude is doing.
 
 - **Done:** green disc with a tick, green text, and the tokens and time the step took at the right
 - **In progress:** slowly turning dotted ring, marked *in progress* in serif italics
@@ -36,19 +36,17 @@ If a script of yours syncs a repository on its own (a Stop hook that commits and
 
 Once a step is done, the header shows the run so far at the right: `14m · 84k T`, the time and tokens of every done step added up. Beside it, `Context 64%` is how full the session's context window is. It is grey, turns amber from 75% and red from 85%, so you see auto-compact coming.
 
-## Plain wording
+## Problem and fix
 
-The title and every step name the problem being solved, not what Claude is doing: written the way Apple writes, in plain everyday words anyone could follow, the problem as you would notice it, under 8 words, no code names, file names or jargon. The mod adds this rule to Claude's system prompt whenever it can write a task list, so the app's own task list reads the same way.
+Every row is a problem, in plain words as you would notice it, and under it a dim line with its fix, `Fix: …`, which reads `Fixed: …` once the step is done. No code names, file names or jargon in either.
 
-| Yes | No |
+| Problem | Fix |
 |---|---|
-| `Finished steps don't show as done` | `Patch the done handler` |
-| `The app can't find your repo` | `Debug git status exit 128` |
-| `Not sure the fix works` | `Run tests and typecheck` |
+| `Finished steps don't show as done` | `Tick a step off the moment its work ends` |
+| `The app can't find your repo` | `Look for the project folder one level up` |
+| `Not sure the fix works` | `Try it the way you would use it` |
 
-## Solving line
-
-The active step can get a dim second line, `Solving: …`, with one more plain line on what is at stake. Claude sets it per step with `goal`. Without a goal, the line shows the task description of a running subagent on the step's model.
+The mod adds this to Claude's system prompt whenever it can draw the band, and tells it never to copy steps from the app's task list. An active step with no fix shows what a running subagent on its model is on, as `Agent: …`.
 
 ## Install
 
@@ -70,11 +68,11 @@ In the desktop app, where `/plugin` does not run: click **+** next to the prompt
 
 ## Use
 
-The mod gives Claude a tool, `set`. Claude calls it with a title and a list of steps (`done`, `active`, `pending` or `wait`) whenever a step starts or finishes. Titles, steps and goals are kept to one line; a step with no text is skipped, and a blank title reads `Tasks`.
+The mod gives Claude a tool, `set`. Claude calls it with a title and a list of steps, each a problem (`text`), its `fix` and a status (`done`, `active`, `pending` or `wait`), whenever a step starts or finishes. Titles, problems and fixes are kept to one line; a step with no text is skipped, and a blank title reads `Tasks`.
 
-In the desktop app the band also follows the app's own task list (the steps Claude ticks off under its message), so it fills in every chat with no extra call. The band follows whichever list changed last, so a chat that calls `set` once and then ticks the app's list still sees its steps finish, with their tokens and time. Run `claude plugin test .` for the test suite in `tests/`. To make it a habit, add a line like this to your `CLAUDE.md`:
+Only `set` fills the band; the app's own task list never does. When a turn ends, the step still running is ticked off with its tokens and time. Run `claude plugin test .` for the test suite in `tests/`. To make it a habit, add a line like this to your `CLAUDE.md`:
 
-> For every multi-step task, show a live checklist with the live-checklist tool. Make the title the goal you are solving, and update it at each step.
+> For every multi-step task, explain each problem and its fix with the live-checklist tool, and update it at each step.
 
 ## License
 

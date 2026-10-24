@@ -13,12 +13,12 @@ export type Item = {
   startTok?: number
   tokens?: number
   ms?: number
-  // The problem the step's agent is working on (not the solution), shown under it while it runs.
-  goal?: string
+  // How the problem in text gets solved, in plain words, shown under the step.
+  fix?: string
 }
 // at / tokAt: clock and token meter at the last update, the start for a step done without being active.
-// source: what drew it, the mod's own set tool or the app's task list (update_plan). set wins.
-export type List = { title: string; items: Item[]; at?: number; tokAt?: number; source?: 'set' | 'plan' }
+// source: what drew it; only the mod's own set tool does.
+export type List = { title: string; items: Item[]; at?: number; tokAt?: number; source?: 'set' }
 // tokens: new tokens across every model response this session (input, cache writes, output).
 // model: the model that last answered on the main thread.
 export type Meter = { tokens: number; model: string }

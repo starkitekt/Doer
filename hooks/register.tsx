@@ -85,37 +85,34 @@ const runTotal = (items: Item[]) => {
 }
 
 const STATUSES: Status[] = ['done', 'active', 'pending', 'wait']
-// The app's task list words (update_plan) in the band's.
-const PLAN_STATUS: Record<string, Status> = { completed: 'done', in_progress: 'active', pending: 'pending' }
 // A string (or finite number) as one trimmed line, capped; anything else is ''.
 const oneLine = (v: unknown, max: number) =>
   typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) ? String(v).replace(/\s+/g, ' ').trim().slice(0, max) : ''
 
-// How every title and step the person sees is worded: the problem being solved, never the model's own actions.
+// The band explains: each row is a problem the person would notice, and under it the fix in plain words.
+// It is its own layer, never a copy of a task list.
 const WORDING = [
-  'Word the title and every step as the problem being solved, in plain everyday words anyone could follow, the way Apple writes:',
-  'what is wrong, missing or unknown as the person would notice it, never what you will do to fix it.',
-  "No action verbs about your own work (find, read, run, check, refactor, update), no code names, file names, tool names or jargon. Short and calm, under 8 words.",
-  "E.g. 'Login sometimes fails', not 'Patch retry in auth.ts'; 'Steps read like a to-do for the model', not 'Rewrite wording rules'; 'Not sure the fix works', not 'Run tests and typecheck'.",
+  'Each step is a problem and its fix. text: the problem as the person would notice it, in plain everyday words, under 8 words',
+  "(e.g. 'Login sometimes fails'). fix: how it gets solved, one plain sentence anyone could follow, under 16 words",
+  "(e.g. 'Retry the sign-in once before showing an error'). No code names, file names, tool names or jargon in either.",
+  'Never copy steps from any other task list or plan into it: that list says what you do; this one explains what is wrong and how it gets fixed.',
 ].join(' ')
 
 const DESCRIPTION = [
-  'Shows the person a live checklist above their prompt. Call it at the start of every multi-step task,',
+  'Shows the person a problem-and-fix explainer above their prompt. Call it at the start of every multi-step task,',
   'and again whenever a step starts or finishes, sending the whole list each time.',
   WORDING,
-  'status: done, active (being worked on now), pending, or wait (waiting on the person, e.g. an approval).',
+  'title: the overall problem in 3-6 plain words. status: done, active (being worked on now), pending, or wait (waiting on the person).',
   'model: which model runs the step (Opus, Sonnet, Haiku); left out, the session model. Tokens and time are measured for you.',
-  'goal: optional, one more plain line on what is at stake for the person, shown under the step while it is active.',
   'Send an empty items list to clear it.',
 ].join(' ')
 
-// The app's own task list (update_plan) fills the band too, so its steps get the same wording.
 const PROMPT_SECTION = {
-  id: 'live-checklist:wording',
-  text: `# Task list wording\nThe person sees your task list steps (the app's update_plan list and the live-checklist set tool) in a live checklist. ${WORDING} This replaces any instruction to write steps as short imperative phrases.`,
+  id: 'live-checklist:explainer',
+  text: `# Problem and fix explainer\nThe live-checklist set tool draws a band above the prompt that explains the work to the person. ${WORDING}`,
   scope: 'session',
 } as const
-const LIST_TOOLS = ['mcp__live-checklist__set', 'mcp__ccd_turn__update_plan']
+const SET_TOOL = 'mcp__live-checklist__set'
 
 // Colours per theme. Text and green sit as light as they can while still at least 5:1:
 // light on the app's grey tray (#F0F0EF), dark on #1F1E1D, #262624 and #30302E.
@@ -203,7 +200,7 @@ async function refreshSync($: EngineInterface) {
   await update($, sync, () => s)
 }
 
-// Build and store the band's list from a set or update_plan call. Each step keeps its model, goal and
+// Build and store the band's list from a set call. Each step keeps its model, fix and
 // timing from the last update where it is the same step. Returns the list, or null when it is empty.
 async function applyList($: EngineInterface, rawTitle: unknown, raw: unknown[], source: List['source']): Promise<List | null> {
   const now = await $.clock.now()
@@ -213,7 +210,7 @@ async function applyList($: EngineInterface, rawTitle: unknown, raw: unknown[], 
   const title = oneLine(rawTitle, 120) || 'Tasks'
   // Steps with no usable text are dropped, so a bad payload never draws a blank row.
   const clean = raw
-    .filter((i): i is { text: unknown; status: unknown; model?: unknown; goal?: unknown } => typeof i === 'object' && i !== null)
+    .filter((i): i is { text: unknown; status: unknown; model?: unknown; fix?: unknown } => typeof i === 'object' && i !== null)
     .map(i => ({ ...i, text: oneLine(i.text, 200) }))
     .filter(i => i.text)
   const texts = new Set(clean.map(i => i.text))
@@ -234,8 +231,8 @@ async function applyList($: EngineInterface, rawTitle: unknown, raw: unknown[], 
       const was = claim(text, n)
       const asked = typeof i.model === 'string' && i.model.trim() ? shortModel(i.model) : undefined
       const item: Item = { text, status, model: asked ?? was?.model ?? (m.model ? shortModel(m.model) : undefined) }
-      const goal = oneLine(i.goal, 160) || was?.goal
-      if (goal) item.goal = goal
+      const fix = oneLine(i.fix, 160) || (was?.text === text ? was.fix : undefined)
+      if (fix) item.fix = fix
       if (was?.startedAt !== undefined) {
         item.startedAt = was.startedAt
         item.startTok = was.startTok
@@ -285,18 +282,18 @@ export const register: Register = on => {
       inputSchema: {
         type: 'object',
         properties: {
-          title: { type: 'string', description: "The problem being solved, in plain words, 3-6 words (e.g. 'Checklist reads like jargon'). Not the person's prompt." },
+          title: { type: 'string', description: "The overall problem, in plain words, 3-6 words (e.g. 'Checklist reads like jargon'). Not the person's prompt." },
           items: {
             type: 'array',
             items: {
               type: 'object',
               properties: {
-                text: { type: 'string', description: "The problem this step solves, as the person would notice it, under 8 plain words, never your action (e.g. 'Finished steps don't show as done', not 'Patch the done handler')." },
+                text: { type: 'string', description: "The problem, as the person would notice it, under 8 plain words (e.g. 'Finished steps don't show as done')." },
+                fix: { type: 'string', description: "How it gets solved, one plain sentence under 16 words, no jargon (e.g. 'Tick a step off the moment its work ends')." },
                 status: { type: 'string', enum: STATUSES },
                 model: { type: 'string', description: 'Opus, Sonnet or Haiku: the model that runs this step.' },
-                goal: { type: 'string', description: 'Optional: one more plain line on what is at stake for the person, under 8 words, no jargon.' },
               },
-              required: ['text', 'status'],
+              required: ['text', 'fix', 'status'],
             },
           },
         },
@@ -306,14 +303,14 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // Wherever Claude can write a task list, tell it how to word the steps.
+  // Wherever Claude can draw the band, tell it what the band is for.
   on('prompt.compose', async ($, e, next) => {
     const r = await next(e)
-    if (!e.tools.some(t => LIST_TOOLS.includes(t)) || r.sections.some(s => s.id === PROMPT_SECTION.id)) return r
+    if (!e.tools.includes(SET_TOOL) || r.sections.some(s => s.id === PROMPT_SECTION.id)) return r
     return { ...r, sections: [...r.sections, PROMPT_SECTION] }
   })
 
-  // Note the model each subagent starts on, so a step run on that model can show what its agent is solving.
+  // Note the model each subagent starts on, so an active step with no fix can show what its agent is on.
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
     try {
@@ -340,62 +337,22 @@ export const register: Register = on => {
     return r
   })
 
-  on('tool.call', { tool: 'mcp__live-checklist__set' }, async ($, e) => {
+  on('tool.call', { tool: SET_TOOL }, async ($, e) => {
     const input = e as unknown as { title?: unknown; items?: unknown }
     const next = await applyList($, input.title, Array.isArray(input.items) ? input.items : [], 'set')
     const done = next ? next.items.filter(i => i.status === 'done').length : 0
     return { result: next ? `Checklist shown: ${done}/${next.items.length} done.` : 'Checklist cleared.' }
   }).catch(() => ({ result: 'Checklist could not be updated.' }))
 
-  // The app's own task list (update_plan, checked off by wrap_up) drives the band too, so it fills
-  // in every session without a second call. Whichever list moved last owns the band: a session that
-  // calls set once and then only ticks the app's list still sees its steps finish.
-  on('tool.call', { tool: 'mcp__ccd_turn__update_plan' }, async ($, e, next) => {
-    const r = await next(e)
-    if (r.deny || r.isError) return r
-    try {
-      const prev = await read($, list)
-      const input = e as unknown as { items?: unknown; advance?: unknown; done?: unknown; start?: unknown }
-      let steps: { text: unknown; status: Status }[]
-      if (Array.isArray(input.items)) {
-        steps = input.items
-          .filter((i): i is { content?: unknown; status?: unknown } => typeof i === 'object' && i !== null)
-          .map(i => ({ text: i.content, status: PLAN_STATUS[String(i.status)] ?? 'pending' }))
-        // The app's list always has steps: one with none to show is junk, not a clear.
-        if (!steps.some(s => oneLine(s.text, 200))) return r
-      } else {
-        if (!prev) return r
-        steps = prev.items.map(i => ({ text: i.text, status: i.status }))
-        const at = (n: unknown) => (typeof n === 'number' && Number.isInteger(n) ? steps[n - 1] : undefined)
-        if (input.advance === true) {
-          const now = steps.find(s => s.status === 'active')
-          if (now) now.status = 'done'
-          const nextUp = steps.find(s => s.status === 'pending')
-          if (nextUp) nextUp.status = 'active'
-        }
-        for (const n of Array.isArray(input.done) ? input.done : []) {
-          const s = at(n)
-          if (s) s.status = 'done'
-        }
-        const s = at(input.start)
-        if (s) s.status = 'active'
-      }
-      await applyList($, prev?.title, steps, 'plan')
-    } catch {
-      // Mirroring only: the app's own list is never touched.
-    }
-    return r
-  })
-
-  // wrap_up checks off the list: the step still running is done.
+  // The turn's end (wrap_up) finishes the band's own running step. Nothing of the app's list is copied.
   on('tool.call', { tool: 'mcp__ccd_turn__wrap_up' }, async ($, e, next) => {
     const r = await next(e)
     try {
       const prev = await read($, list)
       if (prev?.items.some(i => i.status === 'active'))
-        await applyList($, prev.title, prev.items.map(i => ({ ...i, status: i.status === 'active' ? 'done' : i.status })), 'plan')
+        await applyList($, prev.title, prev.items.map(i => ({ ...i, status: i.status === 'active' ? 'done' : i.status })), 'set')
     } catch {
-      // Mirroring only.
+      // Bookkeeping only: wrap_up itself is never touched.
     }
     return r
   })
@@ -433,17 +390,18 @@ export const register: Register = on => {
     const rawPct = usage?.context.percent
     const pct = typeof rawPct === 'number' && Number.isFinite(rawPct) ? Math.min(100, Math.max(0, Math.round(rawPct))) : undefined
     const total = runTotal(l.items)
-    // What the active step's agent is solving: its own goal, else the description of a running
-    // subagent on the step's model.
+    // The line under each step: its fix; an active step with none shows what a running subagent on
+    // the step's model is on.
     const models = (await read($, agentModels)) ?? {}
-    const live = l.items.some(i => i.status === 'active' && !i.goal)
+    const live = l.items.some(i => i.status === 'active' && !i.fix)
       ? (await $.agent.list().catch(() => [])).filter(a => !a.parentId && ['pending', 'running', 'waiting'].includes(a.status))
       : []
-    const solving = (i: Item) => {
+    const explain = (i: Item) => {
+      if (i.fix) return `${i.status === 'done' ? 'Fixed' : 'Fix'}: ${i.fix}`
       if (i.status !== 'active') return ''
-      if (i.goal) return i.goal
       const model = i.model ?? sessionModel
-      return live.find(a => models[a.id] && shortModel(models[a.id] ?? '') === model)?.description ?? ''
+      const d = live.find(a => models[a.id] && shortModel(models[a.id] ?? '') === model)?.description
+      return d ? `Agent: ${d}` : ''
     }
 
     const done = l.items.filter(i => i.status === 'done')
@@ -477,7 +435,7 @@ export const register: Register = on => {
       const isDone = i.status === 'done'
       const isNow = i.status === 'active'
       const took = stats(i)
-      const why = solving(i)
+      const why = explain(i)
       const line = (
         <Box key="l" flexDirection="row" alignItems="center" gap="sm">
           <Text key="t" color={isDone ? P.accent : 'text'} weight="regular" wrap="truncate-end">
@@ -494,7 +452,7 @@ export const register: Register = on => {
           ) : null}
         </Box>
       )
-      // With a Solving line the row tops-aligns, so the model and glyph stay on the step's own line.
+      // With a fix line the row tops-aligns, so the model and glyph stay on the step's own line.
       return (
         <Box key={k} flexDirection="row" alignItems={why ? 'flex-start' : 'center'} gap="sm">
           <Box key={k + 'm'} width={7} flexShrink={0}>
@@ -507,7 +465,7 @@ export const register: Register = on => {
             {line}
             {why ? (
               <Text key="y" size="footnote" color={P.grey} wrap="truncate-end">
-                {`Solving: ${why}`}
+                {why}
               </Text>
             ) : null}
           </Box>
