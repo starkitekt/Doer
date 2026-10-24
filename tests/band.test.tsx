@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 starkitekt. Doer: live-checklist mod, https://github.com/starkitekt/Doer
+// Copyright (c) 2026 starkitekt. Doer: live-checklist mod, https://github.com/starkitekt/doer
 // Adversarial tests: garbage input, odd timing, failing engine calls, every surface.
 // Run with `claude plugin test .` in the repo root.
 

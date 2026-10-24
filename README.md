@@ -53,7 +53,7 @@ Without a goal, the line shows the task description of a running subagent on the
 At the prompt of a Claude Code terminal session:
 
 ```
-/plugin install live-checklist --marketplace starkitekt/Doer
+/plugin install live-checklist --marketplace starkitekt/doer
 ```
 
 Answer `y` to add the marketplace, then press Enter to pick the user scope.
@@ -61,10 +61,10 @@ Answer `y` to add the marketplace, then press Enter to pick the user scope.
 From a shell:
 
 ```bash
-claude plugin install live-checklist --marketplace starkitekt/Doer
+claude plugin install live-checklist --marketplace starkitekt/doer
 ```
 
-In the desktop app, where `/plugin` does not run: click **+** next to the prompt box, then **Plugins**, then **Add marketplace** with `starkitekt/Doer`, then **Add plugin**.
+In the desktop app, where `/plugin` does not run: click **+** next to the prompt box, then **Plugins**, then **Add marketplace** with `starkitekt/doer`, then **Add plugin**.
 
 ## Use
 
