@@ -540,3 +540,17 @@ test('a new app list keeps the time of a step it carries over', async ($, on) =>
   await plan({ items: [P('a', 'completed'), P('b', 'in_progress'), P('c', 'pending')] })
   expect((await draw()).all.some(t => t.endsWith('/ 3m'))).toBe(true)
 })
+
+// ---- Wording --------------------------------------------------------------------------------
+
+test('a prompt with a task list tool is told to word steps as the problem, once', async ($, on) => {
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'hi', scope: 'shared' }] }) as any)
+  await boot($, on)
+  const compose = async (tools: string[]) =>
+    ((await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['desktop'], tools, outputStyle: null, traits: [] } as any)) as any).sections as { id: string; text: string }[]
+  const ids = async (tools: string[]) => (await compose(tools)).map(s => s.id)
+  expect(await ids([PLAN])).toEqual(['intro', 'live-checklist:wording'])
+  expect(await ids([SET, PLAN])).toEqual(['intro', 'live-checklist:wording'])
+  expect(await ids(['Bash'])).toEqual(['intro'])
+  expect((await compose([SET]))[1]?.text).toContain('never what you will do')
+})

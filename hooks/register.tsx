@@ -91,16 +91,31 @@ const PLAN_STATUS: Record<string, Status> = { completed: 'done', in_progress: 'a
 const oneLine = (v: unknown, max: number) =>
   typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) ? String(v).replace(/\s+/g, ' ').trim().slice(0, max) : ''
 
+// How every title and step the person sees is worded: the problem being solved, never the model's own actions.
+const WORDING = [
+  'Word the title and every step as the problem being solved, in plain everyday words anyone could follow, the way Apple writes:',
+  'what is wrong, missing or unknown as the person would notice it, never what you will do to fix it.',
+  "No action verbs about your own work (find, read, run, check, refactor, update), no code names, file names, tool names or jargon. Short and calm, under 8 words.",
+  "E.g. 'Login sometimes fails', not 'Patch retry in auth.ts'; 'Steps read like a to-do for the model', not 'Rewrite wording rules'; 'Not sure the fix works', not 'Run tests and typecheck'.",
+].join(' ')
+
 const DESCRIPTION = [
-  'Shows the person a live checklist above their prompt; its title is the goal you are solving, stated as the outcome. Call it at the start of every multi-step task,',
+  'Shows the person a live checklist above their prompt. Call it at the start of every multi-step task,',
   'and again whenever a step starts or finishes, sending the whole list each time.',
+  WORDING,
   'status: done, active (being worked on now), pending, or wait (waiting on the person, e.g. an approval).',
   'model: which model runs the step (Opus, Sonnet, Haiku); left out, the session model. Tokens and time are measured for you.',
-  "goal: for a step an agent works on, the problem in plain words anyone could follow, the way Apple writes: what is wrong or unknown as the person sees it, never the fix.",
-  "Short and calm, under 8 words, everyday words, no code names, file names or jargon (e.g. 'Finished steps don't show as done', not 'band misses steps finished without going active').",
-  'Shown under the step while it is active.',
-  'Keep each text to a few crisp words, no filler. Send an empty items list to clear it.',
+  'goal: optional, one more plain line on what is at stake for the person, shown under the step while it is active.',
+  'Send an empty items list to clear it.',
 ].join(' ')
+
+// The app's own task list (update_plan) fills the band too, so its steps get the same wording.
+const PROMPT_SECTION = {
+  id: 'live-checklist:wording',
+  text: `# Task list wording\nThe person sees your task list steps (the app's update_plan list and the live-checklist set tool) in a live checklist. ${WORDING} This replaces any instruction to write steps as short imperative phrases.`,
+  scope: 'session',
+} as const
+const LIST_TOOLS = ['mcp__live-checklist__set', 'mcp__ccd_turn__update_plan']
 
 // Colours per theme. Text and green sit as light as they can while still at least 5:1:
 // light on the app's grey tray (#F0F0EF), dark on #1F1E1D, #262624 and #30302E.
@@ -270,16 +285,16 @@ export const register: Register = on => {
       inputSchema: {
         type: 'object',
         properties: {
-          title: { type: 'string', description: "The goal you are solving, as a concrete outcome in 3-6 words (e.g. 'Iron levers re-rendered'). Not the person's prompt." },
+          title: { type: 'string', description: "The problem being solved, in plain words, 3-6 words (e.g. 'Checklist reads like jargon'). Not the person's prompt." },
           items: {
             type: 'array',
             items: {
               type: 'object',
               properties: {
-                text: { type: 'string' },
+                text: { type: 'string', description: "The problem this step solves, as the person would notice it, under 8 plain words, never your action (e.g. 'Finished steps don't show as done', not 'Patch the done handler')." },
                 status: { type: 'string', enum: STATUSES },
                 model: { type: 'string', description: 'Opus, Sonnet or Haiku: the model that runs this step.' },
-                goal: { type: 'string', description: "The problem this step is up against, in plain everyday words, under 8 words, no jargon or code names, never the fix (e.g. 'Finished steps don't show as done', not 'patch the done handler')." },
+                goal: { type: 'string', description: 'Optional: one more plain line on what is at stake for the person, under 8 words, no jargon.' },
               },
               required: ['text', 'status'],
             },
@@ -289,6 +304,13 @@ export const register: Register = on => {
       },
     })
     return next(e)
+  })
+
+  // Wherever Claude can write a task list, tell it how to word the steps.
+  on('prompt.compose', async ($, e, next) => {
+    const r = await next(e)
+    if (!e.tools.some(t => LIST_TOOLS.includes(t)) || r.sections.some(s => s.id === PROMPT_SECTION.id)) return r
+    return { ...r, sections: [...r.sections, PROMPT_SECTION] }
   })
 
   // Note the model each subagent starts on, so a step run on that model can show what its agent is solving.

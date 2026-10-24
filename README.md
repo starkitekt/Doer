@@ -1,6 +1,6 @@
 # Doer
 
-A live checklist that floats above the Claude Code prompt. Claude sets the goal it is solving as the header, then ticks steps off as it works, so you are never left guessing what it is doing.
+A live checklist that floats above the Claude Code prompt. Claude sets the problem it is solving as the header, then ticks steps off as it works, each one named in plain words for what it fixes, so you always know what is being solved.
 
 - **Done:** green disc with a tick, green text, and the tokens and time the step took at the right
 - **In progress:** slowly turning dotted ring, marked *in progress* in serif italics
@@ -36,17 +36,19 @@ If a script of yours syncs a repository on its own (a Stop hook that commits and
 
 Once a step is done, the header shows the run so far at the right: `14m · 84k T`, the time and tokens of every done step added up. Beside it, `Context 64%` is how full the session's context window is. It is grey, turns amber from 75% and red from 85%, so you see auto-compact coming.
 
-## Solving line
+## Plain wording
 
-The active step gets a dim second line, `Solving: …`, naming the problem its agent is working on, not the solution. Claude sets it per step with `goal`, written the way Apple writes: plain everyday words anyone could follow, the problem as you would see it, under 8 words, no code names or jargon.
+The title and every step name the problem being solved, not what Claude is doing: written the way Apple writes, in plain everyday words anyone could follow, the problem as you would notice it, under 8 words, no code names, file names or jargon. The mod adds this rule to Claude's system prompt whenever it can write a task list, so the app's own task list reads the same way.
 
 | Yes | No |
 |---|---|
-| `Finished steps don't show as done` | `band misses steps finished without going active` |
-| `The app can't find your repo` | `git status exits 128` |
-| `Search results load slowly` | `patch the N+1 query` |
+| `Finished steps don't show as done` | `Patch the done handler` |
+| `The app can't find your repo` | `Debug git status exit 128` |
+| `Not sure the fix works` | `Run tests and typecheck` |
 
-Without a goal, the line shows the task description of a running subagent on the step's model.
+## Solving line
+
+The active step can get a dim second line, `Solving: …`, with one more plain line on what is at stake. Claude sets it per step with `goal`. Without a goal, the line shows the task description of a running subagent on the step's model.
 
 ## Install
 
